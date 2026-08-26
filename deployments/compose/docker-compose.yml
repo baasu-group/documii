@@ -1,0 +1,110 @@
+name: documi
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-documi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-documi_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-documi}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-documi}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-documi_dev_only}
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    ports:
+      - "7233:7233"
+    volumes:
+      - ../temporal/development-sql.yaml:/etc/temporal/config/dynamicconfig/development-sql.yaml:ro
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8082:8080"
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_dev_only}
+    ports:
+      - "8081:8080"
+    volumes:
+      - ../keycloak/documi-realm.json:/opt/keycloak/data/import/documi-realm.json:ro
+      - keycloak-data:/opt/keycloak/data
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /realms/documi HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3; grep '200 OK' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  api:
+    profiles: ["application"]
+    build:
+      context: ../..
+      dockerfile: services/core/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DOCUMI_HTTP_ADDRESS: :8080
+      DOCUMI_DATABASE_URL: postgres://${POSTGRES_USER:-documi}:${POSTGRES_PASSWORD:-documi_dev_only}@postgres:5432/${POSTGRES_DB:-documi}?sslmode=disable
+      DOCUMI_TEMPORAL_ADDRESS: temporal:7233
+      DOCUMI_OIDC_ISSUER: http://keycloak:8080/realms/documi
+      DOCUMI_STORAGE_ROOT: /var/lib/documi/storage
+      AIR_GAPPED: ${AIR_GAPPED:-false}
+    ports:
+      - "8080:8080"
+    volumes:
+      - document-data:/var/lib/documi/storage
+
+  core-worker:
+    profiles: ["application"]
+    build:
+      context: ../..
+      dockerfile: services/core/Dockerfile
+    entrypoint: ["worker"]
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      DOCUMI_TEMPORAL_ADDRESS: temporal:7233
+      AIR_GAPPED: ${AIR_GAPPED:-false}
+
+volumes:
+  postgres-data:
+  keycloak-data:
+  document-data:

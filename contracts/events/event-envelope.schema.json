@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://documi.org/contracts/events/event-envelope.schema.json",
+  "title": "Documi event envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "type", "schema_version", "timestamp", "organization_id", "workspace_id", "actor_id", "resource_id", "data"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^evt_[A-Za-z0-9_-]+$" },
+    "type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "organization_id": { "type": "string", "minLength": 1 },
+    "workspace_id": { "type": "string", "minLength": 1 },
+    "actor_id": { "type": ["string", "null"] },
+    "resource_id": { "type": ["string", "null"] },
+    "data": { "type": "object" }
+  }
+}

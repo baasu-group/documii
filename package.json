@@ -1,0 +1,42 @@
+{
+  "name": "documi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.7.1",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "bootstrap": "pnpm install --frozen-lockfile && pnpm run bootstrap:optional",
+    "bootstrap:optional": "sh scripts/bootstrap-optional.sh",
+    "dev": "pnpm --filter @documi/web dev",
+    "dev:web": "pnpm --filter @documi/web dev",
+    "dev:desktop": "pnpm --filter @documi/desktop tauri dev",
+    "dev:api": "sh scripts/run-if-tool.sh go services/core go run ./cmd/api",
+    "dev:core-worker": "sh scripts/run-if-tool.sh go services/core go run ./cmd/worker",
+    "dev:document-worker": "sh scripts/run-if-tool.sh uv services/ai uv run document-worker",
+    "dev:ai-worker": "sh scripts/run-if-tool.sh uv services/ai uv run ai-worker",
+    "infra:up": "docker compose -f deployments/compose/docker-compose.yml up -d",
+    "infra:down": "docker compose -f deployments/compose/docker-compose.yml down",
+    "format": "prettier --write . && sh scripts/format-backends.sh",
+    "format:check": "prettier --check . && sh scripts/check-format-backends.sh",
+    "lint": "eslint . --max-warnings 0 && sh scripts/lint-backends.sh",
+    "typecheck": "pnpm -r --if-present typecheck && sh scripts/typecheck-backends.sh",
+    "test": "pnpm -r --if-present test && sh scripts/test-backends.sh",
+    "build": "pnpm -r --if-present build && sh scripts/build-backends.sh",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.5",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.1"
+  }
+}

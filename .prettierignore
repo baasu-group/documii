@@ -1,0 +1,13 @@
+node_modules
+dist
+target
+.venv
+pnpm-lock.yaml
+uv.lock
+*.svg
+*.sql
+*.md
+*.json
+*.yaml
+*.yml
+*.toml

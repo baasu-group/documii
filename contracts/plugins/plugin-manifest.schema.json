@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://documi.org/contracts/plugins/plugin-manifest.schema.json",
+  "title": "Documi plugin manifest (reserved)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "name", "capabilities"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" },
+    "version": { "type": "string" },
+    "name": { "type": "string", "minLength": 1 },
+    "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+  }
+}

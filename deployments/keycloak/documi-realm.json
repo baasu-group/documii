@@ -1,0 +1,26 @@
+{
+  "realm": "documi",
+  "enabled": true,
+  "displayName": "Documi development",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "clients": [
+    {
+      "clientId": "documi-web",
+      "name": "Documi Web",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:5173/*", "http://localhost:1420/*"],
+      "webOrigins": ["http://localhost:5173", "http://localhost:1420"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ],
+  "roles": {
+    "realm": [
+      { "name": "documi-admin", "description": "Development placeholder; application authorization remains in Documi." }
+    ]
+  }
+}

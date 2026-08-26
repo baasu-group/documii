@@ -1,0 +1,38 @@
+[project]
+name = "documi-ai"
+version = "0.1.0"
+description = "Documi document processing and private AI workers"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.scripts]
+document-worker = "documi_ai.workers.document:main"
+ai-worker = "documi_ai.workers.ai:main"
+documi-ai-health = "documi_ai.api.health:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3.4,<9",
+  "ruff>=0.8.4,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/documi_ai"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

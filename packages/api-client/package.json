@@ -1,0 +1,10 @@
+{
+  "name": "@documi/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests" },
+  "dependencies": { "@documi/shared-types": "workspace:*" },
+  "devDependencies": { "vitest": "^2.1.8" }
+}

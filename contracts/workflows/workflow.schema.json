@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://documi.org/contracts/workflows/workflow.schema.json",
+  "title": "Documi workflow definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "name", "trigger", "steps"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^wfl_[A-Za-z0-9_-]+$" },
+    "version": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "trigger": { "$ref": "#/$defs/node" },
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/node" } }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "config"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "enum": ["trigger", "condition", "action", "human_task"] },
+        "config": { "type": "object" }
+      }
+    }
+  }
+}

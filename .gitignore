@@ -1,0 +1,33 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Go
+services/core/bin/
+services/core/coverage.out
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+
+# Rust / Tauri
+target/
+apps/desktop/src-tauri/gen/
+
+# Runtime data and secrets
+.data/
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+models/
