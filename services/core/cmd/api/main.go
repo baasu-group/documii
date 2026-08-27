@@ -129,6 +129,14 @@ func main() {
 	}
 	editorService := editors.NewService(editorRegistry, editors.NewResolver(editorRegistry, editors.DefaultPolicy()))
 	editorHandler := editors.NewHandler(editorService, sessionService)
+	var readiness httpserver.Readiness = httpserver.StaticReadiness(true)
+	if databasePool != nil {
+		readiness = httpserver.ReadinessFunc(func() bool {
+			checkContext, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			return databasePool.Ping(checkContext) == nil
+		})
+	}
 
 	server := &http.Server{
 		Addr: configValue.HTTPAddress,
@@ -139,7 +147,7 @@ func main() {
 			Authenticator: authenticator,
 			AuthConfig:    map[string]any{"mode": configValue.Auth.Mode, "issuer": configValue.Auth.Issuer, "audience": configValue.Auth.Audience, "clientId": configValue.Auth.ClientID},
 			Documents:     documentHandler,
-		}, httpserver.StaticReadiness(true)),
+		}, readiness),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

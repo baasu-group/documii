@@ -118,7 +118,7 @@ Provider protocols accept product-level requests and return product-level respon
 
 PostgreSQL is the canonical database in server workspaces. `pgvector` stores embeddings in the same authorization and transaction boundary as document metadata. Versioned, forward SQL lives in `database/migrations`; the migration executable records applied versions. Tests use isolated databases when persistence behavior is introduced.
 
-SQLite is the implemented local-document metadata store and is not a replica of a live server workspace. Native content stays in application-controlled files. PostgreSQL migration `000002` is the server schema; its HTTP repositories are not yet composed into the API. Application services must not assume PostgreSQL-specific behavior outside repository implementations.
+SQLite is the implemented local-document metadata store and is not a replica of a live server workspace. Native content stays in application-controlled files. PostgreSQL migration `000002` and the Go Documents application service implement the server authority for identities, additive grants, native documents, immutable versions, storage metadata, idempotency, audit, editor sessions, and WOPI locks. Application services must not assume PostgreSQL-specific behavior outside repository implementations.
 
 ## 12. Document and version architecture
 
@@ -219,6 +219,8 @@ Desktop-only Office integration stays behind the shared app-shell platform inter
 
 Browser or desktop clients call the Go API. PostgreSQL/pgvector is canonical; Temporal coordinates durable work; Keycloak authenticates through OIDC; Go and Python workers execute activities; company-controlled storage retains bytes; configured private AI performs optional inference. Reverse proxy/TLS and production secret management are deployment responsibilities documented before first release.
 
+Windows, macOS, and Linux clients never connect directly to PostgreSQL. A company may run PostgreSQL, the API, storage mounts, Keycloak, and optional editors on private-network hosts; clients use the HTTPS API. A desktop user may instead select a purely local workspace backed by SQLite. See [Deployment topologies](docs/architecture/deployment-topologies.md).
+
 ## 24. Air-gapped architecture
 
 With `AIR_GAPPED=true`, runtime behavior makes no required outbound calls. Telemetry is disabled, application assets/fonts are local, AI model download is manual, providers requiring external endpoints are rejected by configuration, and integrations remain disabled until an administrator supplies reachable internal endpoints. Release artifacts will eventually include image and dependency manifests plus offline installation guidance.
@@ -248,7 +250,7 @@ Docker Compose is the development and initial single-node server profile. Images
 
 ## 29. Explicitly deferred features
 
-Server document repositories/HTTP composition and administration APIs; production OIDC user-profile persistence; production Collabora/ONLYOFFICE callbacks and sessions; LibreOffice open/save-back and conversion runtime; Google OAuth/import/export; SecretStore; Docling/Tesseract/model dependencies; reranking; generated SDKs; S3; outbound connectors/webhooks; advanced SSO; realtime protocols; multi-node scaling; Kubernetes implementation; local/server synchronization; marketplace and mobile applications.
+Folder/group/grant administration APIs and React screens; checksum-pinned blank Office templates; end-to-end Collabora browser verification; ONLYOFFICE callbacks; LibreOffice open/save-back and conversion runtime; Google OAuth/import/export; SecretStore; Docling/Tesseract/model dependencies; reranking; generated SDKs; S3; outbound connectors/webhooks; advanced SSO; realtime protocols; multi-node scaling; Kubernetes implementation; local/server synchronization; marketplace and mobile applications.
 
 ## 30. ADR index
 
@@ -267,6 +269,6 @@ Server document repositories/HTTP composition and administration APIs; productio
 
 ## 31. Current implementation status
 
-Implemented: a shared web/desktop React shell and document gateway; durable local native creation/load/explicit-save/version history through bundled SQLite and controlled files; immutable local audit triggers; Tiptap native editor integration; the PostgreSQL `000002` persistence/identity/hierarchy/grants/audit/editor-session/WOPI-lock schema; safe mounted-filesystem storage; role capability bundles; development/OIDC authentication validation; idempotent owner bootstrap CLI; capability-based editor resolution; Collabora discovery parsing, ten-hour-bounded tokens, WOPI read/content/save/lock protocol boundaries; ONLYOFFICE signing foundation; and Tauri LibreOffice detection.
+Implemented: a shared web/desktop React shell and document gateway; durable local native creation/load/explicit-save/version history through bundled SQLite and controlled files; immutable local audit triggers; Tiptap native editor integration; PostgreSQL-backed identity mapping, hierarchy-aware additive authorization, permission-constrained document listing, native create/read/download/version APIs, validated Office/OpenDocument upload, hash-verified filesystem storage, idempotency, append-only audit, owner bootstrap, and stale-version conflicts; browser OIDC authorization-code + PKCE; capability-based editor resolution; Collabora discovery, persisted-session-bound ten-hour-bounded tokens, WOPI read/content/save/lock operations, persisted locks and immutable save versions; ONLYOFFICE signing foundation; and Tauri LibreOffice detection.
 
-The server Documents repository/HTTP composition, persisted OIDC profile mapping, hierarchical administration services, and PostgreSQL-backed Collabora gateway/session issuance are still fail-closed. Consequently Collabora is not claimed operational, and the web gateway cannot yet persist server documents. Rust checks also require a Rust toolchain; TypeScript-only desktop builds do not validate the native SQLite code.
+The native PostgreSQL flow and authorization boundary were exercised against an isolated PostgreSQL 17 instance. Collabora remains **Partial** rather than Working because this environment has no Collabora container and blank Office template creation is not implemented. Hierarchy administration is CLI/database foundation only. Rust checks require a Rust toolchain; CI now covers Rust formatting, Clippy, and tests across Windows, macOS, and Linux, while this workstation still cannot compile the native SQLite code.

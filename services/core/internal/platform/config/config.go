@@ -97,6 +97,9 @@ func Load() (Config, error) {
 	if config.Auth.Mode == "development" && config.Environment != "development" && config.Environment != "test" {
 		return Config{}, fmt.Errorf("development authentication is forbidden outside development/test")
 	}
+	if config.Environment == "production" && strings.TrimSpace(config.DatabaseURL) == "" {
+		return Config{}, fmt.Errorf("DOCUMI_DATABASE_URL is required in production")
+	}
 	if config.Auth.Mode == "oidc" {
 		if err := requireHTTPURL("DOCUMI_OIDC_ISSUER", config.Auth.Issuer); err != nil {
 			return Config{}, err
@@ -104,8 +107,12 @@ func Load() (Config, error) {
 		if config.Auth.Audience == "" {
 			return Config{}, fmt.Errorf("DOCUMI_OIDC_AUDIENCE is required")
 		}
-		if config.Auth.DiscoveryURL == "" { config.Auth.DiscoveryURL = config.Auth.Issuer }
-		if err := requireHTTPURL("DOCUMI_OIDC_DISCOVERY_URL", config.Auth.DiscoveryURL); err != nil { return Config{}, err }
+		if config.Auth.DiscoveryURL == "" {
+			config.Auth.DiscoveryURL = config.Auth.Issuer
+		}
+		if err := requireHTTPURL("DOCUMI_OIDC_DISCOVERY_URL", config.Auth.DiscoveryURL); err != nil {
+			return Config{}, err
+		}
 	}
 	return config, nil
 }

@@ -14,6 +14,7 @@ export interface DocumentGateway {
   initializeWorkspace(): Promise<Workspace>;
   list(workspaceId: string): Promise<DocumentRecord[]>;
   createNative(request: CreateNativeDocumentRequest): Promise<DocumentRecord>;
+  uploadOffice?(workspaceId: string, file: File, idempotencyKey: string): Promise<DocumentRecord>;
   get(documentId: string): Promise<DocumentRecord>;
   saveNative(request: SaveNativeDocumentRequest): Promise<DocumentRecord>;
   versions(documentId: string): Promise<DocumentVersion[]>;

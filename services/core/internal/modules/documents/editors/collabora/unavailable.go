@@ -5,9 +5,13 @@ import (
 	"io"
 )
 
-// UnavailableGateway keeps WOPI routes fail-closed until the Documents domain
-// has persistence, permission, version, storage, and audit implementations.
+// UnavailableGateway keeps WOPI routes fail-closed when the optional
+// persistence or Collabora dependencies are not configured.
 type UnavailableGateway struct{}
+
+func (UnavailableGateway) SessionAccess(context.Context, string, string, string) (Access, error) {
+	return Access{}, ErrForbidden
+}
 
 func (UnavailableGateway) Access(context.Context, string, string) (Access, error) {
 	return Access{}, ErrForbidden

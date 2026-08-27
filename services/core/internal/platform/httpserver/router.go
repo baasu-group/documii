@@ -21,6 +21,10 @@ type StaticReadiness bool
 
 func (readiness StaticReadiness) Ready() bool { return bool(readiness) }
 
+type ReadinessFunc func() bool
+
+func (readiness ReadinessFunc) Ready() bool { return readiness() }
+
 type Routes struct {
 	System        *system.Handler
 	Editors       *editors.Handler
@@ -66,6 +70,7 @@ func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Han
 		mux.Handle("GET /api/v1/workspaces", protected(routes.Documents.Workspaces))
 		mux.Handle("GET /api/v1/workspaces/{workspaceId}/documents", protected(routes.Documents.Documents))
 		mux.Handle("POST /api/v1/workspaces/{workspaceId}/documents", protected(routes.Documents.Documents))
+		mux.Handle("POST /api/v1/workspaces/{workspaceId}/document-uploads", protected(routes.Documents.Upload))
 		mux.Handle("GET /api/v1/documents/{id}", protected(routes.Documents.Document))
 		mux.Handle("GET /api/v1/documents/{id}/content", protected(routes.Documents.Content))
 		mux.Handle("GET /api/v1/documents/{id}/download", protected(routes.Documents.Download))

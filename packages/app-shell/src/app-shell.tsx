@@ -176,9 +176,11 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const openNativeDocument = (id: string) => {
-    window.history.pushState({}, "", `/documents/${encodeURIComponent(id)}/edit`);
+  const openDocument = (id: string, provider: EditorProviderId) => {
+    const query = provider === "native" ? "" : `?provider=${encodeURIComponent(provider)}`;
+    window.history.pushState({}, "", `/documents/${encodeURIComponent(id)}/edit${query}`);
     setDocumentId(id);
+    setProviderId(provider);
     setActive("documents");
   };
   return (
@@ -241,7 +243,7 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
             <DocumentsFeature
               documentId={documentId}
               providerId={providerId}
-              onOpenNative={openNativeDocument}
+              onOpenDocument={openDocument}
               gateway={editorPlatform.documents}
               localOnly={editorPlatform.kind === "desktop"}
             />

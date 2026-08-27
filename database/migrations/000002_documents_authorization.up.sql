@@ -62,6 +62,7 @@ CREATE FUNCTION protect_last_organization_owner() RETURNS trigger LANGUAGE plpgs
 DECLARE removing_owner boolean := false;
 BEGIN
   IF OLD.scope_type='organization' AND OLD.role='owner' THEN
+    PERFORM 1 FROM organizations WHERE id=OLD.organization_id FOR UPDATE;
     IF TG_OP='DELETE' THEN removing_owner := true;
     ELSE removing_owner := NEW.scope_type<>'organization' OR NEW.role<>'owner' OR NEW.organization_id<>OLD.organization_id;
     END IF;

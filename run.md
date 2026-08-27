@@ -2,7 +2,7 @@
 
 This guide covers the current Documi bootstrap on a local machine: installation, web-only testing, the Go API, PostgreSQL/pgvector, Temporal, Keycloak, Python workers, the Tauri desktop shell, verification, shutdown, and common errors.
 
-> **Current product status:** local Tauri workspaces now persist native Documi documents and immutable versions. The server schema, OIDC validator, storage adapter, and WOPI protocol foundation exist, but the PostgreSQL Documents repository and real Collabora session gateway still fail closed. Do not use the web UI as proof of durable server saves.
+> **Current product status:** local Tauri workspaces and PostgreSQL server workspaces have separate native document gateways with immutable versions. Server authentication, hierarchy-aware grants, audit, validated Office uploads, and Collabora session/WOPI persistence are composed. Collabora remains partial until blank Office templates and a real-container browser test are completed.
 
 ## 1. Choose what you want to test
 
@@ -150,7 +150,7 @@ Then open `http://localhost:5174`.
 
 ## 5. Run and test the Go API without Docker
 
-The bootstrap API does not require PostgreSQL for its three current endpoints.
+The health, system, auth-configuration, and editor-availability endpoints can start without PostgreSQL. Server workspace/document routes are registered only when `DOCUMI_DATABASE_URL` is configured and reachable.
 
 Copying `.env` does **not** automatically export it into local Go or Python processes. On macOS/Linux, load it into the current terminal first:
 
@@ -234,7 +234,7 @@ Username: admin
 Password: admin_dev_only
 ```
 
-These credentials are for local development only. The imported `documi` realm provides the public `documi-web` client but deliberately contains no test users. The API protects `/api/v1/me` and editor-session creation. Development mode supplies the configured development subject; OIDC mode validates issuer, signature, audience, expiry, and subject. Database profile persistence and document grant enforcement are not composed yet.
+These credentials are for local development only. The imported `documi` realm provides the public `documi-web` client but deliberately contains no test users. The API protects `/api/v1/me`, document routes, and editor-session creation. Development mode supplies the configured development subject; OIDC mode validates issuer, signature, audience, expiry, and subject. PostgreSQL identity persistence and document grant enforcement are composed whenever `DOCUMI_DATABASE_URL` is configured and migrations are current.
 
 ## 7. Apply the bootstrap database migration
 
@@ -260,7 +260,7 @@ Expected output:
 database migrations are current
 ```
 
-Migration `000001` enables `pgvector`; `000002` creates identity, organization/workspace/folder, additive grants, storage, document/version, immutable audit, idempotency, editor-session, and WOPI-lock tables. Applying the schema does not by itself enable server document routes—the PostgreSQL repository composition is still deferred and the API fails closed.
+Migration `000001` enables `pgvector`; `000002` creates identity, organization/workspace/folder, additive grants, storage, document/version, immutable audit, idempotency, editor-session, and WOPI-lock tables. With `DOCUMI_DATABASE_URL` set, the API composes the server document gateway and maps validated identities to internal users.
 
 You can inspect the database through the container:
 
@@ -359,7 +359,7 @@ Verify the Collabora service itself:
 curl -fsS http://localhost:9980/hosting/discovery
 ```
 
-This checks only the optional container and its discovery XML. The API deliberately reports Collabora unavailable and refuses editor sessions until the PostgreSQL Documents/WOPI gateway is composed; a working iframe/save is not expected in this revision.
+The API reports Collabora available only when it can reach discovery and the PostgreSQL document/storage gateway is ready. Supported Office/OpenDocument uploads can then receive persisted sessions and WOPI locks/saves. Blank Office template creation is not implemented yet, so this is not a complete browser acceptance test.
 
 ### Bootstrap the first server owner
 
@@ -377,7 +377,39 @@ go run ./cmd/admin \
 cd ../..
 ```
 
-This is idempotent for the issuer/subject and names and never guesses the first user. It does not enable the unfinished server document routes.
+This is idempotent for the issuer/subject and names and never guesses the first user. After bootstrap, that identity can use the PostgreSQL-backed server document routes.
+
+For `DOCUMI_AUTH_MODE=development`, use `--issuer documi-development` and set `--subject` to `DOCUMI_DEV_SUBJECT` (default `local-admin`). Development auth is rejected outside development/test environments.
+
+### Use PostgreSQL on another private-network server
+
+PostgreSQL is optional for a purely local desktop workspace. For a company workspace it may run on another LAN host; only the API, migration, and admin processes receive its URL:
+
+```sh
+DOCUMI_DATABASE_URL='postgres://documi:REPLACE@db.internal.example:5432/documi?sslmode=verify-full'
+DOCUMI_STORAGE_ROOT='/srv/documi/documents'
+```
+
+On Windows Server, `DOCUMI_STORAGE_ROOT` can be a drive or a company-approved mounted SMB path. On Linux it can be an NFS/SMB mount such as `/mnt/documi`; on macOS development it can be a mounted volume. Mount and authenticate the share through the operating system—do not put SMB credentials in document metadata.
+
+Requirements:
+
+1. Install a supported PostgreSQL version plus pgvector on the database host.
+2. Permit port 5432 only from API/migration/admin hosts.
+3. Require TLS outside an isolated development machine.
+4. Run migrations from one controlled release process.
+5. Run the API near the database/storage; clients connect only to API HTTPS.
+6. Verify same-directory atomic rename, permissions, backups, and restore on any network share.
+
+PowerShell can set process-local values as follows:
+
+```powershell
+$env:DOCUMI_DATABASE_URL = "postgres://documi:REPLACE@db.internal.example:5432/documi?sslmode=verify-full"
+$env:DOCUMI_STORAGE_ROOT = "D:\Documi\Documents"
+go run ./cmd/api
+```
+
+See [deployment topologies](docs/architecture/deployment-topologies.md) for the authority and platform boundaries.
 
 ## 10. Run the desktop application
 
@@ -438,6 +470,7 @@ Expected test coverage at bootstrap includes:
 - Web runtime smoke test.
 - Go configuration parsing.
 - Go liveness/readiness/system-info handlers.
+- Document validation, storage containment, permission, version, and WOPI protocol behavior.
 - Temporal development activity wiring.
 - Python health and worker startup.
 - Disabled AI provider failing closed.
@@ -449,14 +482,17 @@ On 2026-08-27 the following completed successfully in this checkout:
 ```sh
 pnpm check
 cd services/core && go test ./...
+cd services/core && go test -race ./internal/modules/documents/editors/collabora ./internal/modules/documents
 ```
 
-The API was also started on `127.0.0.1:18080`; `/health`, `/ready`, `/api/v1/auth/config`, `/api/v1/me`, and `/api/v1/document-editors` returned successful JSON responses. It then stopped gracefully.
+The API was also started on `127.0.0.1:18080`; `/health`, `/ready`, `/api/v1/auth/config`, `/api/v1/me`, and `/api/v1/document-editors` returned successful JSON responses. Against an isolated PostgreSQL 17 cluster, owner bootstrap, authorized workspace listing, native create/save/history, stale-save conflict, storage/version counts, audit creation, and a second user's non-enumerating denial were exercised. The processes and isolated data were then stopped and removed.
 
 Two environment limitations prevented complete runtime verification on this machine:
 
 - `cargo`/`rustfmt` were not installed, so the Tauri Rust module, bundled SQLite migration, and restart-persistence flow were not compiled or executed here.
-- `docker` was not installed, so migration `000002`, Keycloak/OIDC, PostgreSQL authorization, Collabora discovery against a real container, and WOPI integration were not executed here.
+- `docker` was not installed, so Keycloak/OIDC and Collabora were not executed against their real containers. Migration `000002` and the native server authorization/version flow were instead validated with an isolated Homebrew PostgreSQL 17 cluster; migration `000001` requires pgvector and correctly failed on that stock server.
+
+The repository-wide `go test -race ./...` build was also attempted, but the machine's nearly full disk exhausted the Go temporary build volume. The two changed persistence/WOPI packages passed with race instrumentation using the narrower command above; the complete race suite remains a CI or higher-capacity-machine check.
 
 Treat those as required checks on a machine with the corresponding prerequisites; do not infer success from the frontend-only desktop build.
 
@@ -639,7 +675,7 @@ Only the provider abstraction and fail-closed disabled implementation exist. Oll
 
 ### A document saves in desktop but not in the web application
 
-This is the expected authority split in this revision. Tauri uses local SQLite and controlled files; the browser needs the unfinished PostgreSQL Documents API. Local and server histories do not synchronize.
+This indicates that the selected authority or API is unavailable. Tauri local workspaces use SQLite and controlled files; browser/server workspaces use PostgreSQL through the API. Their histories deliberately do not synchronize.
 
 ### `document_version_conflict` when saving
 
@@ -647,7 +683,7 @@ The open document is based on an older immutable version. Reopen it to load the 
 
 ### Collabora is running but the editor is unavailable
 
-The container, discovery parser, WOPI protocol routes, and locks are foundation components. The production PostgreSQL document gateway/session issuer remains fail-closed. Do not disable that guard or construct WOPI URLs in React; finish the permission/version repository integration first.
+Check `COLLABORA_ENABLED`, both Collabora URLs, `DOCUMI_PUBLIC_URL`, the editor-token secret, PostgreSQL migrations, discovery reachability, and whether the document is a supported Office type. The gateway remains fail-closed if discovery or document persistence is unavailable. Browsers must never construct WOPI URLs themselves.
 
 ## 14. Recommended first local test checklist
 

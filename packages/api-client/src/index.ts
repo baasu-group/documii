@@ -72,6 +72,14 @@ export function createApiClient({
           body: JSON.stringify({ title: value.title, family: "native", content: value.content }),
         },
       ),
+    uploadOfficeDocument: (workspaceId: string, file: File, idempotencyKey: string) => {
+      const body = new FormData();
+      body.set("file", file);
+      return request<DocumentRecord>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/document-uploads`,
+        { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body },
+      );
+    },
     getDocument: (documentId: string) =>
       request<DocumentRecord>(`/api/v1/documents/${encodeURIComponent(documentId)}`),
     saveNativeDocument: (value: SaveNativeDocumentRequest) =>
@@ -101,6 +109,7 @@ export function createServerDocumentGateway(options: ApiClientOptions) {
     },
     list: async (workspaceId: string) => (await client.listDocuments(workspaceId)).documents,
     createNative: client.createNativeDocument,
+    uploadOffice: client.uploadOfficeDocument,
     get: client.getDocument,
     saveNative: client.saveNativeDocument,
     versions: async (documentId: string) => (await client.documentVersions(documentId)).versions,

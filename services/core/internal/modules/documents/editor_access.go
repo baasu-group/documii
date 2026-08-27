@@ -26,8 +26,25 @@ const (
 )
 
 type EditorLockRequest struct {
-	ActorID, DocumentID, Value, OldValue string
-	Operation                            EditorLockOperation
+	ActorID, DocumentID, ExpectedVersion, Value, OldValue string
+	Operation                                             EditorLockOperation
+}
+
+func (service *Service) ValidateEditorSession(ctx context.Context, sessionID, actorID, documentID string) (bool, error) {
+	session, sessionErr := uuid.Parse(sessionID)
+	actor, actorErr := uuid.Parse(actorID)
+	document, documentErr := uuid.Parse(documentID)
+	if sessionErr != nil || actorErr != nil || documentErr != nil {
+		return false, ErrNotFound
+	}
+	var canEdit bool
+	if err := service.pool.QueryRow(ctx, `SELECT can_edit FROM editor_sessions
+		WHERE id=$1 AND actor_id=$2 AND document_id=$3 AND provider_id='collabora' AND expires_at>now()`, session, actor, document).Scan(&canEdit); errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNotFound
+	} else if err != nil {
+		return false, err
+	}
+	return canEdit, nil
 }
 
 func (service *Service) Access(ctx context.Context, actorID, documentID string) (DocumentAccess, error) {
@@ -55,7 +72,9 @@ func (service *Service) OpenContent(ctx context.Context, actorID, documentID str
 		return Document{}, nil, err
 	}
 	body, err := service.verifiedContent(ctx, value)
-	if err != nil { return Document{}, nil, err }
+	if err != nil {
+		return Document{}, nil, err
+	}
 	return value, io.NopCloser(bytes.NewReader(body)), nil
 }
 
@@ -101,6 +120,10 @@ func (service *Service) SaveEditorContent(ctx context.Context, actorID, document
 		return Document{}, err
 	}
 	defer tx.Rollback(ctx)
+	var documentVersion uuid.UUID
+	if err = tx.QueryRow(ctx, "SELECT current_version_id FROM documents WHERE id=$1 FOR UPDATE", documentUUID).Scan(&documentVersion); err != nil {
+		return Document{}, err
+	}
 	var activeLock string
 	var lockBase uuid.UUID
 	err = tx.QueryRow(ctx, "SELECT lock_value,base_version_id FROM wopi_locks WHERE document_id=$1 AND expires_at>now() FOR UPDATE", documentUUID).Scan(&activeLock, &lockBase)
@@ -115,7 +138,7 @@ func (service *Service) SaveEditorContent(ctx context.Context, actorID, document
 	// allowing subsequent WOPI saves without issuing a new token.
 	_ = expectedVersion
 	base := lockBase
-	if base == uuid.Nil {
+	if base == uuid.Nil || documentVersion != base {
 		return Document{}, ErrVersionConflict
 	}
 	var number int64
@@ -165,6 +188,12 @@ func (service *Service) ManageEditorLock(ctx context.Context, request EditorLock
 		return "", err
 	}
 	defer tx.Rollback(ctx)
+	var documentVersion uuid.UUID
+	if err = tx.QueryRow(ctx, "SELECT current_version_id FROM documents WHERE id=$1 FOR UPDATE", documentID).Scan(&documentVersion); errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	} else if err != nil {
+		return "", err
+	}
 	var current string
 	var expires time.Time
 	err = tx.QueryRow(ctx, "SELECT lock_value,expires_at FROM wopi_locks WHERE document_id=$1 FOR UPDATE", documentID).Scan(&current, &expires)
@@ -187,11 +216,11 @@ func (service *Service) ManageEditorLock(ctx context.Context, request EditorLock
 			return current, ErrVersionConflict
 		}
 		if missing {
-			var base uuid.UUID
-			if err = tx.QueryRow(ctx, "SELECT current_version_id FROM documents WHERE id=$1", documentID).Scan(&base); err != nil {
-				return "", err
+			expected, parseErr := uuid.Parse(request.ExpectedVersion)
+			if parseErr != nil || expected != documentVersion {
+				return current, ErrVersionConflict
 			}
-			_, err = tx.Exec(ctx, "INSERT INTO wopi_locks(document_id,lock_value,base_version_id,expires_at) VALUES($1,$2,$3,now()+interval '30 minutes')", documentID, request.Value, base)
+			_, err = tx.Exec(ctx, "INSERT INTO wopi_locks(document_id,lock_value,base_version_id,expires_at) VALUES($1,$2,$3,now()+interval '30 minutes')", documentID, request.Value, documentVersion)
 		} else {
 			_, err = tx.Exec(ctx, "UPDATE wopi_locks SET expires_at=now()+interval '30 minutes',updated_at=now() WHERE document_id=$1", documentID)
 		}

@@ -17,6 +17,11 @@ type fakeGateway struct {
 	content   []byte
 	saved     []byte
 	saveCalls int
+	saveErr   error
+}
+
+func (gateway *fakeGateway) SessionAccess(context.Context, string, string, string) (Access, error) {
+	return gateway.access, nil
 }
 
 func (gateway *fakeGateway) Access(context.Context, string, string) (Access, error) {
@@ -32,6 +37,9 @@ func (gateway *fakeGateway) OpenContent(context.Context, string, string) (io.Rea
 }
 
 func (gateway *fakeGateway) SaveNewVersion(_ context.Context, request SaveRequest) (File, error) {
+	if gateway.saveErr != nil {
+		return File{}, gateway.saveErr
+	}
 	content, err := io.ReadAll(request.Content)
 	if err != nil {
 		return File{}, err
@@ -41,6 +49,20 @@ func (gateway *fakeGateway) SaveNewVersion(_ context.Context, request SaveReques
 	gateway.file.VersionID = "ver_2"
 	gateway.file.Size = int64(len(content))
 	return gateway.file, nil
+}
+
+func TestWOPILockConflictReturnsCurrentLock(t *testing.T) {
+	handler, tokens, gateway := testHandler(t, Access{CanRead: true, CanEdit: true})
+	gateway.saveErr = ErrConflict
+	token, _, _ := tokens.IssueForVersion("doc_1", "ver_1", "user_1", true, true)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/wopi/files/doc_1/contents?access_token="+token, strings.NewReader("changed"))
+	request.Header.Set("X-WOPI-Lock", "wrong")
+	request.SetPathValue("id", "doc_1")
+	response := httptest.NewRecorder()
+	handler.PutFile(response, request)
+	if response.Code != http.StatusConflict || response.Header().Get("X-WOPI-Lock") != "lock-1" {
+		t.Fatalf("status=%d lock=%q", response.Code, response.Header().Get("X-WOPI-Lock"))
+	}
 }
 
 func (gateway *fakeGateway) ManageLock(_ context.Context, request LockRequest) (LockResult, error) {

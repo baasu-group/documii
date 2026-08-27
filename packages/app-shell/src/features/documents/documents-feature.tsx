@@ -23,13 +23,13 @@ const mutationKey = () => crypto.randomUUID();
 export function DocumentsFeature({
   documentId,
   providerId = "native",
-  onOpenNative,
+  onOpenDocument,
   gateway,
   localOnly = false,
 }: {
   documentId?: string;
   providerId?: EditorProviderId;
-  onOpenNative: (documentId: string) => void;
+  onOpenDocument: (documentId: string, providerId: EditorProviderId) => void;
   gateway?: DocumentGateway;
   localOnly?: boolean;
 }) {
@@ -53,7 +53,7 @@ export function DocumentsFeature({
   }, [gateway]);
 
   useEffect(() => {
-    if (!gateway || !documentId) return;
+    if (!gateway || !documentId || providerId !== "native") return;
     gateway
       .get(documentId)
       .then((next) => {
@@ -63,7 +63,7 @@ export function DocumentsFeature({
         setStatus(undefined);
       })
       .catch((reason: Error) => setError(reason.message));
-  }, [documentId, gateway]);
+  }, [documentId, gateway, providerId]);
 
   if (documentId && providerId !== "native")
     return <OfficeEditorContainer documentId={documentId} providerId={providerId} />;
@@ -139,7 +139,7 @@ export function DocumentsFeature({
         idempotencyKey: mutationKey(),
       });
       setDocuments((current) => [created, ...current]);
-      onOpenNative(created.id);
+      onOpenDocument(created.id, "native");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "create_failed");
     }
@@ -163,16 +163,38 @@ export function DocumentsFeature({
           {error ?? providerError}
         </p>
       )}
+      {status && <p className="text-sm text-forest">{status}</p>}
       <NewDocumentMenu
         providers={providers.length ? providers : [...fallbackProviders]}
         onCreateNative={createNative}
+        onUpload={
+          gateway?.uploadOffice && workspace
+            ? async (file) => {
+                try {
+                  const uploaded = await gateway.uploadOffice!(workspace.id, file, mutationKey());
+                  setDocuments((current) => [uploaded, ...current]);
+                  if (
+                    providers.some(
+                      (provider) => provider.id === uploaded.editorProvider && provider.available,
+                    )
+                  ) {
+                    onOpenDocument(uploaded.id, uploaded.editorProvider);
+                  } else {
+                    setStatus("File uploaded. Configure an Office editor to open it.");
+                  }
+                } catch (reason) {
+                  setError(reason instanceof Error ? reason.message : "upload_failed");
+                }
+              }
+            : undefined
+        }
       />
       <div className="mt-8 grid gap-2">
         {documents.map((item) => (
           <button
             key={item.id}
             type="button"
-            onClick={() => onOpenNative(item.id)}
+            onClick={() => onOpenDocument(item.id, item.editorProvider)}
             className="rounded-lg border border-black/[0.07] bg-white px-4 py-3 text-left"
           >
             <strong className="block">{item.title}</strong>

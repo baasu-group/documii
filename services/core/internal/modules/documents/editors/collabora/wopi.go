@@ -50,8 +50,8 @@ const (
 )
 
 type LockRequest struct {
-	FileID, ActorID, LockValue, OldLockValue string
-	Operation                                LockOperation
+	FileID, ActorID, ExpectedVersion, LockValue, OldLockValue string
+	Operation                                                 LockOperation
 }
 type LockResult struct{ CurrentLock string }
 
@@ -59,6 +59,7 @@ type LockResult struct{ CurrentLock string }
 // methods must enforce permissions and append audit events; SaveNewVersion must
 // never overwrite an existing business document version.
 type DocumentGateway interface {
+	SessionAccess(context.Context, string, string, string) (Access, error)
 	Access(context.Context, string, string) (Access, error)
 	Info(context.Context, string, string) (File, error)
 	OpenContent(context.Context, string, string) (io.ReadCloser, File, error)
@@ -157,6 +158,11 @@ func (handler *Handler) PutFile(writer http.ResponseWriter, request *http.Reques
 			writeWOPIJSON(writer, http.StatusRequestEntityTooLarge, map[string]string{"error": "document_too_large"})
 			return
 		}
+		if errors.Is(err, ErrConflict) {
+			if lock, lockErr := handler.documents.ManageLock(request.Context(), LockRequest{FileID: claims.FileID, ActorID: claims.ActorID, Operation: LockGet}); lockErr == nil {
+				writer.Header().Set("X-WOPI-Lock", lock.CurrentLock)
+			}
+		}
 		handler.writeGatewayError(writer, err)
 		return
 	}
@@ -186,7 +192,7 @@ func (handler *Handler) FileOperation(writer http.ResponseWriter, request *http.
 		writeWOPIJSON(writer, http.StatusBadRequest, map[string]string{"error": "wopi_lock_too_long"})
 		return
 	}
-	result, err := handler.documents.ManageLock(request.Context(), LockRequest{FileID: claims.FileID, ActorID: claims.ActorID, Operation: operation, LockValue: lock, OldLockValue: request.Header.Get("X-WOPI-OldLock")})
+	result, err := handler.documents.ManageLock(request.Context(), LockRequest{FileID: claims.FileID, ActorID: claims.ActorID, ExpectedVersion: claims.VersionID, Operation: operation, LockValue: lock, OldLockValue: request.Header.Get("X-WOPI-OldLock")})
 	if errors.Is(err, ErrConflict) {
 		writer.Header().Set("X-WOPI-Lock", result.CurrentLock)
 		writeWOPIJSON(writer, http.StatusConflict, map[string]string{"error": "wopi_lock_mismatch"})
@@ -209,7 +215,7 @@ func (handler *Handler) authorize(writer http.ResponseWriter, request *http.Requ
 		writeWOPIJSON(writer, http.StatusUnauthorized, map[string]string{"error": "invalid_editor_token"})
 		return Claims{}, Access{}, false
 	}
-	access, err := handler.documents.Access(request.Context(), claims.ActorID, claims.FileID)
+	access, err := handler.documents.SessionAccess(request.Context(), claims.SessionID, claims.ActorID, claims.FileID)
 	if err != nil {
 		handler.writeGatewayError(writer, err)
 		return Claims{}, Access{}, false

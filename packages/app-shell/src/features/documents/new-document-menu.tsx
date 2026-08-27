@@ -17,9 +17,11 @@ const options: Array<{
 export function NewDocumentMenu({
   providers,
   onCreateNative,
+  onUpload,
 }: {
   providers: EditorProviderStatus[];
   onCreateNative: () => void;
+  onUpload?: (file: File) => void;
 }) {
   const available = options.filter((option) =>
     providers.some(
@@ -43,12 +45,21 @@ export function NewDocumentMenu({
           {option.label}
         </button>
       ))}
-      <button
-        type="button"
-        className="rounded-lg border border-black/[0.07] bg-white px-4 py-3 text-left text-sm font-semibold"
-      >
-        Upload File
-      </button>
+      {onUpload && (
+        <label className="cursor-pointer rounded-lg border border-black/[0.07] bg-white px-4 py-3 text-left text-sm font-semibold">
+          Upload File
+          <input
+            className="sr-only"
+            type="file"
+            accept=".docx,.xlsx,.pptx,.odt,.ods,.odp"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              if (file) onUpload(file);
+              event.currentTarget.value = "";
+            }}
+          />
+        </label>
+      )}
       {!providers.some((provider) => provider.id.startsWith("google-") && provider.available) && (
         <p className="m-1 text-xs text-black/50">
           Google Workspace is not connected. An administrator can configure it in editor settings.

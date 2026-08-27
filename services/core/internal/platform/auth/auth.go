@@ -43,7 +43,9 @@ func (authenticator DevelopmentAuthenticator) Authenticate(context.Context, stri
 type OIDCAuthenticator struct{ verifier *oidc.IDTokenVerifier }
 
 func NewOIDCAuthenticator(ctx context.Context, issuer, discoveryURL, audience string) (*OIDCAuthenticator, error) {
-	if discoveryURL != issuer { ctx = oidc.InsecureIssuerURLContext(ctx, issuer) }
+	if discoveryURL != issuer {
+		ctx = oidc.InsecureIssuerURLContext(ctx, issuer)
+	}
 	provider, err := oidc.NewProvider(ctx, discoveryURL)
 	if err != nil {
 		return nil, err

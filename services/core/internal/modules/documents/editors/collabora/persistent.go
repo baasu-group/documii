@@ -22,6 +22,16 @@ func NewPersistentGateway(service *documents.Service) *PersistentGateway {
 	return &PersistentGateway{documents: service}
 }
 
+func (gateway *PersistentGateway) SessionAccess(ctx context.Context, sessionID, actorID, fileID string) (Access, error) {
+	sessionCanEdit, err := gateway.documents.ValidateEditorSession(ctx, sessionID, actorID, fileID)
+	if err != nil {
+		return Access{}, mapDocumentError(err)
+	}
+	access, err := gateway.Access(ctx, actorID, fileID)
+	access.CanEdit = access.CanEdit && sessionCanEdit
+	return access, err
+}
+
 func (gateway *PersistentGateway) Access(ctx context.Context, actorID, fileID string) (Access, error) {
 	value, err := gateway.documents.Access(ctx, actorID, fileID)
 	return Access{CanRead: value.CanRead, CanEdit: value.CanEdit}, mapDocumentError(err)
@@ -49,7 +59,7 @@ func (gateway *PersistentGateway) SaveNewVersion(ctx context.Context, request Sa
 }
 func (gateway *PersistentGateway) ManageLock(ctx context.Context, request LockRequest) (LockResult, error) {
 	operations := map[LockOperation]documents.EditorLockOperation{LockAcquire: documents.EditorLockAcquire, LockRefresh: documents.EditorLockRefresh, LockGet: documents.EditorLockGet, LockRelease: documents.EditorLockRelease, LockRelock: documents.EditorLockRelock}
-	value, err := gateway.documents.ManageEditorLock(ctx, documents.EditorLockRequest{ActorID: request.ActorID, DocumentID: request.FileID, Value: request.LockValue, OldValue: request.OldLockValue, Operation: operations[request.Operation]})
+	value, err := gateway.documents.ManageEditorLock(ctx, documents.EditorLockRequest{ActorID: request.ActorID, DocumentID: request.FileID, ExpectedVersion: request.ExpectedVersion, Value: request.LockValue, OldValue: request.OldLockValue, Operation: operations[request.Operation]})
 	return LockResult{CurrentLock: value}, mapDocumentError(err)
 }
 
@@ -73,18 +83,25 @@ func fileFromDocument(value documents.Document) File {
 func safeOfficeName(title, mime string) string {
 	extension := map[string]string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx", "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx", "application/vnd.oasis.opendocument.text": ".odt", "application/vnd.oasis.opendocument.spreadsheet": ".ods", "application/vnd.oasis.opendocument.presentation": ".odp"}[mime]
 	name := strings.Map(func(character rune) rune {
-		if character < ' ' || strings.ContainsRune(`/\:`, character) {
+		if character < ' ' || strings.ContainsRune(`<>:"/\|?*`, character) {
 			return '-'
 		}
 		return character
 	}, strings.TrimSpace(title))
+	runes := []rune(name)
+	if len(runes) > 180 {
+		name = string(runes[:180])
+	}
+	name = strings.TrimRight(strings.TrimSuffix(name, filepath.Ext(name)), " .")
 	if name == "" {
 		name = "document"
 	}
-	if len(name) > 180 {
-		name = name[:180]
+	upper := strings.ToUpper(name)
+	if upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL" ||
+		(len(upper) == 4 && (strings.HasPrefix(upper, "COM") || strings.HasPrefix(upper, "LPT")) && upper[3] >= '1' && upper[3] <= '9') {
+		name = "_" + name
 	}
-	return strings.TrimSuffix(name, filepath.Ext(name)) + extension
+	return name + extension
 }
 
 type PersistentSessionService struct {
@@ -139,14 +156,14 @@ func (service *PersistentSessionService) CreateSession(ctx context.Context, requ
 	query := actionURL.Query()
 	query.Set("WOPISrc", wopi.String())
 	actionURL.RawQuery = query.Encode()
-	token, expires, err := service.tokens.IssueForVersion(document.ID, document.CurrentVersionID, request.ActorID, true, canEdit)
+	sessionID := uuid.New()
+	token, expires, err := service.tokens.IssueForSession(document.ID, document.CurrentVersionID, request.ActorID, sessionID.String(), true, canEdit)
 	if err != nil {
 		return editors.Session{}, err
 	}
 	actor := uuid.MustParse(request.ActorID)
 	documentID := uuid.MustParse(document.ID)
 	workspaceID := uuid.MustParse(document.WorkspaceID)
-	sessionID := uuid.New()
 	transaction, err := service.pool.Begin(ctx)
 	if err != nil {
 		return editors.Session{}, err

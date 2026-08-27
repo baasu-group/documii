@@ -15,6 +15,7 @@ import (
 var ErrInvalidToken = errors.New("invalid editor access token")
 
 type Claims struct {
+	SessionID string `json:"session_id,omitempty"`
 	FileID    string `json:"file_id"`
 	ActorID   string `json:"actor_id"`
 	VersionID string `json:"version_id,omitempty"`
@@ -45,6 +46,10 @@ func (service *TokenService) Issue(fileID, actorID string, canRead, canEdit bool
 }
 
 func (service *TokenService) IssueForVersion(fileID, versionID, actorID string, canRead, canEdit bool) (string, time.Time, error) {
+	return service.IssueForSession(fileID, versionID, actorID, "", canRead, canEdit)
+}
+
+func (service *TokenService) IssueForSession(fileID, versionID, actorID, sessionID string, canRead, canEdit bool) (string, time.Time, error) {
 	if fileID == "" || actorID == "" || !canRead {
 		return "", time.Time{}, fmt.Errorf("file ID, actor ID, and read access are required")
 	}
@@ -54,6 +59,7 @@ func (service *TokenService) IssueForVersion(fileID, versionID, actorID string, 
 	}
 	expiresAt := service.now().Add(service.ttl)
 	claims := Claims{
+		SessionID: sessionID,
 		FileID:    fileID,
 		ActorID:   actorID,
 		VersionID: versionID,

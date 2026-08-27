@@ -43,11 +43,37 @@ func (handler *Handler) Documents(writer http.ResponseWriter, request *http.Requ
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, MaxNativeBytes+16<<10))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&payload) != nil || payload.Family != "native" {
+	if decoder.Decode(&payload) != nil || decoder.Decode(&struct{}{}) != io.EOF || payload.Family != "native" {
 		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "invalid_document_request"})
 		return
 	}
 	value, err := handler.service.CreateNative(request.Context(), CreateRequest{ActorID: subject.ID, WorkspaceID: workspaceID, FolderID: payload.FolderID, Title: payload.Title, Content: payload.Content, IdempotencyKey: request.Header.Get("Idempotency-Key")})
+	if err != nil {
+		handler.error(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusCreated, value)
+}
+
+func (handler *Handler) Upload(writer http.ResponseWriter, request *http.Request) {
+	subject, _ := platformauth.FromContext(request.Context())
+	request.Body = http.MaxBytesReader(writer, request.Body, MaxDocumentBytes+(1<<20))
+	if err := request.ParseMultipartForm(MaxDocumentBytes); err != nil {
+		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "invalid_document_upload"})
+		return
+	}
+	defer request.MultipartForm.RemoveAll()
+	file, header, err := request.FormFile("file")
+	if err != nil {
+		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "document_file_required"})
+		return
+	}
+	defer file.Close()
+	var folderID *string
+	if value := request.FormValue("folderId"); value != "" {
+		folderID = &value
+	}
+	value, err := handler.service.UploadOffice(request.Context(), UploadRequest{ActorID: subject.ID, WorkspaceID: request.PathValue("workspaceId"), FolderID: folderID, Filename: header.Filename, MIMEType: header.Header.Get("Content-Type"), Content: file, IdempotencyKey: request.Header.Get("Idempotency-Key")})
 	if err != nil {
 		handler.error(writer, err)
 		return
@@ -115,7 +141,7 @@ func (handler *Handler) Versions(writer http.ResponseWriter, request *http.Reque
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, MaxNativeBytes+16<<10))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&payload) != nil {
+	if decoder.Decode(&payload) != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "invalid_document_version_request"})
 		return
 	}

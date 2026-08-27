@@ -11,6 +11,7 @@ import (
 	"path"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/documi/documi/services/core/internal/modules/permissions"
 	"github.com/documi/documi/services/core/internal/modules/storage"
@@ -101,7 +102,7 @@ func (service *Service) Workspaces(ctx context.Context, actorID string) ([]Works
 	rows, err := service.pool.Query(ctx, `SELECT DISTINCT w.id,w.name FROM workspaces w
 JOIN authorization_grants g ON g.organization_id=w.organization_id
 WHERE (g.user_id=$1 OR g.group_id IN (SELECT group_id FROM group_members WHERE user_id=$1))
-AND (g.scope_type='organization' OR (g.scope_type='workspace' AND g.workspace_id=w.id))
+AND (g.scope_type='organization' OR g.workspace_id=w.id)
 ORDER BY w.name,w.id`, actor)
 	if err != nil {
 		return nil, err
@@ -159,10 +160,10 @@ FROM documents d WHERE d.workspace_id=$2 AND EXISTS (
 }
 
 func (service *Service) CreateNative(ctx context.Context, request CreateRequest) (Document, error) {
-	if strings.TrimSpace(request.IdempotencyKey) == "" {
+	if !validIdempotencyKey(request.IdempotencyKey) {
 		return Document{}, ErrIdempotencyNeeded
 	}
-	if strings.TrimSpace(request.Title) == "" || len(request.Title) > 255 {
+	if strings.TrimSpace(request.Title) == "" || utf8.RuneCountInString(request.Title) > 255 {
 		return Document{}, ErrInvalidDocument
 	}
 	content, err := validateNative(request.Content)
@@ -274,14 +275,16 @@ FROM documents d JOIN document_versions v ON v.id=d.current_version_id JOIN stor
 	}
 	if includeContent && value.MIMEType == NativeMIME {
 		body, err := service.verifiedContent(ctx, value)
-		if err != nil { return Document{}, err }
+		if err != nil {
+			return Document{}, err
+		}
 		value.Content = body
 	}
 	return value, nil
 }
 
 func (service *Service) SaveNative(ctx context.Context, request SaveRequest) (Document, error) {
-	if strings.TrimSpace(request.IdempotencyKey) == "" {
+	if !validIdempotencyKey(request.IdempotencyKey) {
 		return Document{}, ErrIdempotencyNeeded
 	}
 	content, err := validateNative(request.Content)
@@ -336,6 +339,13 @@ func (service *Service) SaveNative(ctx context.Context, request SaveRequest) (Do
 		return Document{}, err
 	}
 	defer tx.Rollback(ctx)
+	var persistedCurrent uuid.UUID
+	if err = tx.QueryRow(ctx, "SELECT current_version_id FROM documents WHERE id=$1 FOR UPDATE", documentID).Scan(&persistedCurrent); err != nil {
+		return Document{}, err
+	}
+	if persistedCurrent != base {
+		return Document{}, ErrVersionConflict
+	}
 	var locked bool
 	if err = tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM wopi_locks WHERE document_id=$1 AND expires_at>now())", documentID).Scan(&locked); err != nil {
 		return Document{}, err
@@ -371,6 +381,11 @@ func (service *Service) SaveNative(ctx context.Context, request SaveRequest) (Do
 	}
 	committed = true
 	return service.Get(ctx, request.ActorID, request.DocumentID, true)
+}
+
+func validIdempotencyKey(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return trimmed != "" && len(trimmed) <= 255
 }
 
 func (service *Service) Versions(ctx context.Context, actorID, documentID string) ([]Version, error) {
@@ -413,15 +428,14 @@ func (service *Service) Download(ctx context.Context, actorID, documentID string
 	if !allowed {
 		return Document{}, nil, ErrNotFound
 	}
-	reader, _, err := service.storage.Get(ctx, value.storageKey)
+	body, err := service.verifiedContent(ctx, value)
 	if err != nil {
 		return Document{}, nil, err
 	}
 	if err := service.RecordAudit(ctx, actorID, documentID, "document.downloaded"); err != nil {
-		reader.Close()
 		return Document{}, nil, err
 	}
-	return value, reader, nil
+	return value, io.NopCloser(bytes.NewReader(body)), nil
 }
 
 func (service *Service) RecordAudit(ctx context.Context, actorID, documentID, event string) error {
@@ -482,10 +496,17 @@ func scanDocumentWithStorage(row scanner) (Document, error) {
 
 func (service *Service) verifiedContent(ctx context.Context, document Document) ([]byte, error) {
 	reader, _, err := service.storage.Get(ctx, document.storageKey)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer reader.Close()
-	body, err := io.ReadAll(io.LimitReader(reader, MaxDocumentBytes+1)); if err != nil { return nil, err }
-	if int64(len(body)) != document.size || fmt.Sprintf("%x",sha256.Sum256(body)) != document.sha256 { return nil, fmt.Errorf("document content hash or size mismatch") }
+	body, err := io.ReadAll(io.LimitReader(reader, MaxDocumentBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) != document.size || fmt.Sprintf("%x", sha256.Sum256(body)) != document.sha256 {
+		return nil, fmt.Errorf("document content hash or size mismatch")
+	}
 	return body, nil
 }
 func appendAudit(ctx context.Context, tx pgx.Tx, event string, organizationID, workspaceID, actorID, resourceID uuid.UUID) error {
