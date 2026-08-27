@@ -70,6 +70,41 @@ func (service *Service) CreateGroup(ctx context.Context, actorID, organizationID
 	return result, nil
 }
 
+func (service *Service) UpdateGroup(ctx context.Context, actorID, groupID, name string) (Group, error) {
+	id, resource, err := service.groupResource(ctx, groupID)
+	if err != nil {
+		return Group{}, err
+	}
+	if !validName(name) {
+		return Group{}, ErrInvalidRequest
+	}
+	if err := service.require(ctx, actorID, resource, permissions.CanManageMembers); err != nil {
+		return Group{}, err
+	}
+	actor, err := parseActor(actorID)
+	if err != nil {
+		return Group{}, err
+	}
+	tx, err := service.pool.Begin(ctx)
+	if err != nil {
+		return Group{}, err
+	}
+	defer tx.Rollback(ctx)
+	var result Group
+	if err = tx.QueryRow(ctx, `UPDATE groups SET name=$2 WHERE id=$1
+		RETURNING id,organization_id,name,created_at`, id, strings.TrimSpace(name)).
+		Scan(&result.ID, &result.OrganizationID, &result.Name, &result.CreatedAt); err != nil {
+		return Group{}, mapConstraint(err)
+	}
+	if err = appendAudit(ctx, tx, "group.updated", resource.OrganizationID, nil, actor, id, map[string]any{"name": result.Name}); err != nil {
+		return Group{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Group{}, err
+	}
+	return result, nil
+}
+
 func (service *Service) DeleteGroup(ctx context.Context, actorID, groupID string) error {
 	id, err := uuid.Parse(groupID)
 	if err != nil {

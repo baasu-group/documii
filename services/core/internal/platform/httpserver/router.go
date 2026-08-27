@@ -89,6 +89,7 @@ func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Han
 		mux.Handle("DELETE /api/v1/folders/{id}", protected(routes.Administration.Folder))
 		mux.Handle("GET /api/v1/organizations/{organizationId}/groups", protected(routes.Administration.Groups))
 		mux.Handle("POST /api/v1/organizations/{organizationId}/groups", protected(routes.Administration.Groups))
+		mux.Handle("PATCH /api/v1/groups/{id}", protected(routes.Administration.Group))
 		mux.Handle("DELETE /api/v1/groups/{id}", protected(routes.Administration.Group))
 		mux.Handle("GET /api/v1/groups/{groupId}/members", protected(routes.Administration.Members))
 		mux.Handle("POST /api/v1/groups/{groupId}/members", protected(routes.Administration.Members))

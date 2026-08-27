@@ -81,12 +81,19 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DOCUMI_HTTP_ADDRESS: :8080
       DOCUMI_DATABASE_URL: postgres://${POSTGRES_USER:-documi}:${POSTGRES_PASSWORD:-documi_dev_only}@postgres:5432/${POSTGRES_DB:-documi}?sslmode=disable
       DOCUMI_TEMPORAL_ADDRESS: temporal:7233
+      DOCUMI_AUTH_MODE: ${DOCUMI_AUTH_MODE:-oidc}
       DOCUMI_OIDC_ISSUER: http://localhost:8081/realms/documi
       DOCUMI_OIDC_DISCOVERY_URL: http://keycloak:8080/realms/documi
+      DOCUMI_OIDC_AUDIENCE: documi-api
+      DOCUMI_OIDC_CLIENT_ID: documi-web
       DOCUMI_PUBLIC_URL: http://api:8080
       DOCUMI_STORAGE_ROOT: /var/lib/documi/storage
       AIR_GAPPED: ${AIR_GAPPED:-false}
@@ -101,6 +108,45 @@ services:
       - "8080:8080"
     volumes:
       - document-data:/var/lib/documi/storage
+
+  migrate:
+    profiles: ["application"]
+    build:
+      context: ../..
+      dockerfile: services/core/Dockerfile
+    entrypoint: ["migrate", "--dir", "/app/migrations"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DOCUMI_ENV: development
+      DOCUMI_AUTH_MODE: development
+      DOCUMI_DATABASE_URL: postgres://${POSTGRES_USER:-documi}:${POSTGRES_PASSWORD:-documi_dev_only}@postgres:5432/${POSTGRES_DB:-documi}?sslmode=disable
+
+  bootstrap-acceptance:
+    profiles: ["acceptance"]
+    build:
+      context: ../..
+      dockerfile: services/core/Dockerfile
+    entrypoint:
+      - admin
+      - --organization
+      - Documi Acceptance
+      - --workspace
+      - Acceptance Workspace
+      - --issuer
+      - http://localhost:8081/realms/documi
+      - --subject
+      - 11111111-1111-4111-8111-111111111111
+      - --email
+      - acceptance@documi.local
+      - --display-name
+      - Acceptance Owner
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DOCUMI_DATABASE_URL: postgres://${POSTGRES_USER:-documi}:${POSTGRES_PASSWORD:-documi_dev_only}@postgres:5432/${POSTGRES_DB:-documi}?sslmode=disable
 
   core-worker:
     profiles: ["application"]

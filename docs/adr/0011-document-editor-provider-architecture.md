@@ -18,6 +18,8 @@ Managed documents have Documi-controlled content. External documents are explici
 
 Collabora reaches documents only through authenticated WOPI endpoints. Editing requires a persisted, expiring document lock and every save compares the lock's base version before creating a new immutable version. Session action URLs come from bounded, same-origin Collabora discovery; the browser never constructs privileged WOPI URLs. ONLYOFFICE uses signed server-generated configuration and validated callbacks. Desktop LibreOffice uses a controlled working copy and explicit save-back. Headless LibreOffice runs in an isolated worker, not the API process. Google integration uses the existing connector/secrets boundary.
 
+Editor preferences are organization policy resolved server-side by family, capability, and live availability. Managed Office creation uses reviewed blank application assets with immutable upstream provenance and pinned SHA-256 checks; template corruption disables the dependent creation path. Provider sessions flow through the same authenticated React document gateway as document mutations.
+
 ## Consequences
 
 - New editors implement one provider boundary and do not alter the Documents aggregate.

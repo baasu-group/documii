@@ -1,0 +1,8 @@
+{
+  "name": "documi-collabora-acceptance",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.55.0"
+  }
+}

@@ -14,6 +14,7 @@ import type {
   GroupMember,
   AuthorizationGrant,
   AuthorizationRole,
+  AuthorizationCapability,
   AuditPage,
   EditorPolicy,
   DocumentFamily,
@@ -87,14 +88,11 @@ export function createApiClient({
       title: string,
       idempotencyKey: string,
     ) =>
-      request<DocumentRecord>(
-        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/documents`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-          body: JSON.stringify({ title, family }),
-        },
-      ),
+      request<DocumentRecord>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ title, family }),
+      }),
     uploadOfficeDocument: (workspaceId: string, file: File, idempotencyKey: string) => {
       const body = new FormData();
       body.set("file", file);
@@ -128,6 +126,14 @@ export function createApiClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, parentId }),
       }),
+    updateFolder: (folderId: string, value: { name?: string; parentId?: string | null }) =>
+      request<FolderRecord>(`/api/v1/folders/${encodeURIComponent(folderId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value),
+      }),
+    deleteFolder: (folderId: string) =>
+      request<void>(`/api/v1/folders/${encodeURIComponent(folderId)}`, { method: "DELETE" }),
     groups: (organizationId: string) =>
       request<{ groups: GroupRecord[] }>(
         `/api/v1/organizations/${encodeURIComponent(organizationId)}/groups`,
@@ -135,6 +141,12 @@ export function createApiClient({
     createGroup: (organizationId: string, name: string) =>
       request<GroupRecord>(`/api/v1/organizations/${encodeURIComponent(organizationId)}/groups`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    updateGroup: (groupId: string, name: string) =>
+      request<GroupRecord>(`/api/v1/groups/${encodeURIComponent(groupId)}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       }),
@@ -177,9 +189,14 @@ export function createApiClient({
       ),
     deleteGrant: (grantId: string) =>
       request<void>(`/api/v1/grants/${encodeURIComponent(grantId)}`, { method: "DELETE" }),
-    audit: (organizationId: string, cursor?: string) => {
-      const query = new URLSearchParams({ limit: "50" });
-      if (cursor) query.set("cursor", cursor);
+    audit: (
+      organizationId: string,
+      options: { cursor?: string; workspaceId?: string; eventType?: string; limit?: number } = {},
+    ) => {
+      const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+      if (options.cursor) query.set("cursor", options.cursor);
+      if (options.workspaceId) query.set("workspaceId", options.workspaceId);
+      if (options.eventType) query.set("eventType", options.eventType);
       return request<AuditPage>(
         `/api/v1/organizations/${encodeURIComponent(organizationId)}/audit?${query}`,
       );
@@ -201,6 +218,16 @@ export function createApiClient({
           body: JSON.stringify({ family, providerId }),
         },
       ),
+    effectiveAccess: (
+      subjectId: string,
+      scopeType: "organization" | "workspace" | "folder" | "document",
+      scopeId: string,
+    ) => {
+      const query = new URLSearchParams({ subjectId, scopeType, scopeId });
+      return request<{ capabilities: AuthorizationCapability[] }>(
+        `/api/v1/access/effective?${query}`,
+      );
+    },
   };
 }
 
@@ -229,8 +256,11 @@ export function createServerAdministrationGateway(options: ApiClientOptions) {
   return {
     folders: async (workspaceId: string) => (await client.folders(workspaceId)).folders,
     createFolder: client.createFolder,
+    updateFolder: client.updateFolder,
+    deleteFolder: client.deleteFolder,
     groups: async (organizationId: string) => (await client.groups(organizationId)).groups,
     createGroup: client.createGroup,
+    updateGroup: client.updateGroup,
     deleteGroup: client.deleteGroup,
     groupMembers: async (groupId: string) => (await client.groupMembers(groupId)).members,
     addGroupMember: client.addGroupMember,
@@ -242,5 +272,10 @@ export function createServerAdministrationGateway(options: ApiClientOptions) {
     editorPolicies: async (organizationId: string) =>
       (await client.editorPolicies(organizationId)).policies,
     setEditorPolicy: client.setEditorPolicy,
+    effectiveAccess: async (
+      subjectId: string,
+      scopeType: "organization" | "workspace" | "folder" | "document",
+      scopeId: string,
+    ) => (await client.effectiveAccess(subjectId, scopeType, scopeId)).capabilities,
   };
 }

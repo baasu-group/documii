@@ -78,4 +78,3 @@ export function OfficeEditorContainer({
     </div>
   );
 }
-import type { DocumentGateway } from "./editor-platform";

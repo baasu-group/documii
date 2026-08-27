@@ -101,6 +101,21 @@ func (handler *Handler) Groups(writer http.ResponseWriter, request *http.Request
 }
 
 func (handler *Handler) Group(writer http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodPatch {
+		var payload struct {
+			Name string `json:"name"`
+		}
+		if !decodeJSON(writer, request, &payload) {
+			return
+		}
+		value, err := handler.service.UpdateGroup(request.Context(), actorID(request), request.PathValue("id"), payload.Name)
+		if err != nil {
+			handler.writeError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, value)
+		return
+	}
 	if err := handler.service.DeleteGroup(request.Context(), actorID(request), request.PathValue("id")); err != nil {
 		handler.writeError(writer, err)
 		return

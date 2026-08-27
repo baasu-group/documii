@@ -97,24 +97,32 @@ func main() {
 			collaboraReason = "office_templates_unavailable"
 			logger.Error("Office templates unavailable", "error", templateErr)
 		} else {
-		discovery, discoveryErr := collabora.NewDiscovery(configValue.Editors.CollaboraURL)
-		if discoveryErr == nil {
-			discoveryErr = discovery.Healthy(ctx)
-		}
-		if discoveryErr != nil {
-			collaboraReason = "discovery_unavailable"
-			logger.Warn("Collabora discovery unavailable", "error", discoveryErr)
-		} else {
-			persistentSessions, sessionErr := collabora.NewPersistentSessionService(databasePool, documentService, tokenService, discovery, configValue.PublicURL, configValue.Editors.CollaboraPublicURL)
-			if sessionErr != nil {
-				logger.Error("configure Collabora sessions", "error", sessionErr)
-				os.Exit(1)
+			discovery, discoveryErr := collabora.NewDiscovery(configValue.Editors.CollaboraURL)
+			if discoveryErr == nil {
+				for attempt := 0; attempt < 12; attempt++ {
+					discoveryErr = discovery.Healthy(ctx)
+					if discoveryErr == nil {
+						break
+					}
+					if attempt < 11 {
+						time.Sleep(2 * time.Second)
+					}
+				}
 			}
-			sessionService = persistentSessions
-			wopiGateway = collabora.NewPersistentGateway(documentService)
-			collaboraReady = true
-			collaboraReason = ""
-		}
+			if discoveryErr != nil {
+				collaboraReason = "discovery_unavailable"
+				logger.Warn("Collabora discovery unavailable", "error", discoveryErr)
+			} else {
+				persistentSessions, sessionErr := collabora.NewPersistentSessionService(databasePool, documentService, tokenService, discovery, configValue.PublicURL, configValue.Editors.CollaboraPublicURL)
+				if sessionErr != nil {
+					logger.Error("configure Collabora sessions", "error", sessionErr)
+					os.Exit(1)
+				}
+				sessionService = persistentSessions
+				wopiGateway = collabora.NewPersistentGateway(documentService)
+				collaboraReady = true
+				collaboraReason = ""
+			}
 		}
 	}
 	wopiHandler, err := collabora.NewHandler(tokenService, wopiGateway, documents.MaxDocumentBytes)

@@ -41,7 +41,19 @@ authorized user -> Documi editor session -> short-lived token
 
 The WOPI foundation implements `CheckFileInfo`, `GetFile`, `PutFile`, `LOCK`, `REFRESH_LOCK`, `GET_LOCK`, `UNLOCK`, and atomic unlock/relock dispatch beneath `/api/v1/wopi/files/{id}`. HMAC claims are bound to a persisted session, document, actor, mode, and base version, with a maximum ten-hour lifetime. Every call validates the unexpired session row and re-checks current access; denied documents are non-enumerating 404 responses. Read-only sessions cannot lock or save. Filenames, locks, and body sizes are bounded, paths are never returned, and saves call `SaveNewVersion` with an expected base version and lock.
 
-Discovery parsing resolves view/edit action URLs from `${COLLABORA_URL}/hosting/discovery` with a five-second timeout, a bounded response, same-origin redirects, and a five-minute cache. When PostgreSQL, document storage, configuration, and discovery are ready, the running composition issues persisted sessions and uses the Documents service for WOPI content, 30-minute locks, immutable saves, conflict detection, and generic/provider audit events. If any required dependency is absent, availability and session creation fail closed.
+Discovery parsing resolves view/edit action URLs from `${COLLABORA_URL}/hosting/discovery` with a five-second timeout, a bounded response, same-origin redirects, and a five-minute cache. When PostgreSQL, document storage, configuration, checksum-verified Office templates, and discovery are ready, the running composition issues persisted sessions and uses the Documents service for WOPI content, 30-minute locks, immutable saves, conflict detection, and generic/provider audit events. If any required dependency is absent, availability and session creation fail closed. The React iframe receives sessions through the authenticated document gateway; it never creates an unauthenticated side client.
+
+## Managed Office creation templates
+
+New DOCX, XLSX, and PPTX documents are copied from known application assets, never assembled as ad-hoc ZIP files. The source bytes are text-encoded for repository review, decoded in memory, and SHA-256 checked before use. A checksum mismatch makes Office creation and Collabora availability fail closed.
+
+| Family | Upstream immutable source | SHA-256 |
+| --- | --- | --- |
+| Text | `python-openxml/python-docx` commit `e45454602b53e8e572b179ccf1c91093ec9f4ed7`, `doc-word-default-blank.docx` | `560b0e299a592f6b7d1ec9abab98648f1d92bf8fa684ce544a0424fdde798903` |
+| Spreadsheet | `dtjohnson/xlsx-populate` commit `7480a02575c9140c0e7995623ea192c88c1886d3`, `blank/blank.xlsx` | `32ce7d6f125c2cdde13a61c94c6fd0f05e96dea7ab73c0f7ee6b67b6dd37cf04` |
+| Presentation | `office-kit/pptx` commit `51b1f90b91ef9ea30b49bc38e5500c8acc344412`, `test/fixtures/minimal/blank.pptx` | `dd4746eb40918140f90310247c04e3a3aa7232689de2e2f37670a10e562a4454` |
+
+Unit tests verify package integrity and reject macro parts. Office creation uses the same create capability, opaque storage keys, immutable initial version, idempotency, provider resolver, and audit transaction as uploads.
 
 ## ONLYOFFICE
 
@@ -67,6 +79,8 @@ Google providers report unavailable today because the connector and SecretStore 
 
 All providers call Documents policy before operations: `can_read` for open, `can_edit` for edit/save/replace, and `can_download` for download/export. Provider tokens narrow authority; they never grant authority absent from current policy. Save callbacks re-check access and base version. Successful flows append provider-specific and generic events without tokens or content, including `document.editor.opened/saved`, `document.collabora.opened/saved`, `document.onlyoffice.opened/saved`, `document.libreoffice.opened/saved`, `document.external.created/opened`, `document.google.created/imported/exported`, and `document.imported/exported`.
 
+Folder, group, membership, additive grant, effective-access, editor-policy, and cursor-audit administration live in an application service beside Documents rather than in HTTP handlers. Mutations require the relevant `manage_permissions` or `manage_members` capability, validate tenant hierarchy, append audit in the same transaction, preserve the last organization Owner, and return non-enumerating errors. React consumes these operations through the shared administration gateway.
+
 ## Configuration and air-gapped operation
 
 Environment configuration is:
@@ -82,8 +96,8 @@ Secrets require at least 32 characters when their provider is enabled. URLs are 
 
 | Provider | Status | Current behavior |
 | --- | --- | --- |
-| Native | Partial | server workflow is integration-tested; local Tauri Rust workflow awaits execution on an installed Rust toolchain |
-| Collabora | Partial | validated Office upload plus persisted sessions/WOPI/locks/save versions are composed; blank templates and real-container browser verification remain |
+| Native | Partial | server workflow is integration-tested; a file-backed SQLite restart test and native Tauri CI build are defined but have not run on this workstation |
+| Collabora | Partial | managed Office creation, persisted sessions/WOPI/locks/save versions, and a scheduled real-container OIDC/browser acceptance are implemented; the acceptance has not run on this workstation |
 | LibreOffice Desktop | Foundation only | desktop detection command and missing-state UI; open/save-back deferred |
 | LibreOffice Headless | Foundation only | converter interface only |
 | Google Workspace | Foundation only | normalized disabled/air-gap availability only |

@@ -174,6 +174,11 @@ fn migrate(connection: &Connection) -> Result<(), String> {
 
 fn connect(app: &AppHandle) -> Result<(Connection, Paths), String> {
     let paths = paths(app)?;
+    let connection = connect_paths(&paths)?;
+    Ok((connection, paths))
+}
+
+fn connect_paths(paths: &Paths) -> Result<Connection, String> {
     let connection = Connection::open(&paths.database).map_err(|error| error.to_string())?;
     connection
         .busy_timeout(Duration::from_secs(5))
@@ -185,7 +190,7 @@ fn connect(app: &AppHandle) -> Result<(Connection, Paths), String> {
         .pragma_update(None, "synchronous", "FULL")
         .map_err(|error| error.to_string())?;
     migrate(&connection)?;
-    Ok((connection, paths))
+    Ok(connection)
 }
 
 fn validate_uuid(value: &str) -> Result<(), String> {
@@ -694,6 +699,67 @@ mod tests {
         assert!(root.join(key).starts_with(&root));
         assert_eq!(hash, format!("{:x}", Sha256::digest(b"content")));
         assert!(write_object(&root, "../workspace", &document, &version, b"content").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn database_and_content_survive_adapter_restart() {
+        let root = std::env::temp_dir().join(format!("documi-restart-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths {
+            database: root.join("documi.sqlite3"),
+            root: root.clone(),
+        };
+        let workspace_id = Uuid::new_v4().to_string();
+        let document_id = Uuid::new_v4().to_string();
+        let version_id = Uuid::new_v4().to_string();
+        let object_id = Uuid::new_v4().to_string();
+        let content = br#"{"format":"documi-json-v1","content":{"type":"doc","content":[]}}"#;
+        let (key, hash) = write_object(
+            &paths.root,
+            &workspace_id,
+            &document_id,
+            &version_id,
+            content,
+        )
+        .unwrap();
+        {
+            let connection = connect_paths(&paths).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO local_workspaces(id,name) VALUES(?1,'Restart workspace')",
+                    [&workspace_id],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO local_documents(id,workspace_id,title,family,mime_type,editor_provider,storage_mode,current_version_id)
+                     VALUES(?1,?2,'Persistent document','native',?3,'native','managed',?4)",
+                    params![document_id, workspace_id, NATIVE_MIME, version_id],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO local_storage_objects(id,storage_key,sha256,size,content_type)
+                     VALUES(?1,?2,?3,?4,?5)",
+                    params![object_id, key, hash, content.len() as i64, NATIVE_MIME],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO local_document_versions(id,document_id,storage_object_id,version_number,actor_id)
+                     VALUES(?1,?2,?3,1,'local-owner')",
+                    params![version_id, document_id, object_id],
+                )
+                .unwrap();
+        }
+
+        let reopened = connect_paths(&paths).unwrap();
+        let document = read_document(&reopened, &paths.root, &document_id, true).unwrap();
+        assert_eq!(document.title, "Persistent document");
+        assert_eq!(document.current_version_id, version_id);
+        assert_eq!(document.content.unwrap()["format"], "documi-json-v1");
+        drop(reopened);
         fs::remove_dir_all(root).unwrap();
     }
 }

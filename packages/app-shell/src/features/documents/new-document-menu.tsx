@@ -45,7 +45,7 @@ export function NewDocumentMenu({
             option.family === "native"
               ? onCreateNative
               : !option.external && option.family !== "pdf"
-                ? () => onCreateOffice?.(option.family)
+                ? () => onCreateOffice?.(option.family as "text" | "spreadsheet" | "presentation")
                 : undefined
           }
           disabled={option.family !== "native" && (!onCreateOffice || Boolean(option.external))}

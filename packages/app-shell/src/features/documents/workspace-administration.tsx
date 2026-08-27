@@ -1,11 +1,13 @@
 import type {
   AuditEvent,
   AuthorizationGrant,
+  AuthorizationCapability,
   AuthorizationRole,
   DocumentFamily,
   EditorPolicy,
   FolderRecord,
   GroupRecord,
+  GroupMember,
   Workspace,
 } from "@documi/shared-types";
 import { Button } from "@documi/ui";
@@ -40,12 +42,16 @@ export function WorkspaceAdministration({
   const [policies, setPolicies] = useState<EditorPolicy[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [nextCursor, setNextCursor] = useState<string>();
+  const [auditEventFilter, setAuditEventFilter] = useState("");
+  const [auditWorkspaceOnly, setAuditWorkspaceOnly] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [folderName, setFolderName] = useState("");
+  const [folderParentId, setFolderParentId] = useState("");
   const [groupName, setGroupName] = useState("");
   const [memberGroupId, setMemberGroupId] = useState("");
   const [memberUserId, setMemberUserId] = useState("");
+  const [members, setMembers] = useState<GroupMember[]>([]);
   const [principalType, setPrincipalType] = useState<"user" | "group">("user");
   const [principalId, setPrincipalId] = useState("");
   const [scopeType, setScopeType] = useState<"organization" | "workspace" | "folder" | "document">(
@@ -53,6 +59,8 @@ export function WorkspaceAdministration({
   );
   const [scopeId, setScopeId] = useState("");
   const [role, setRole] = useState<AuthorizationRole>("viewer");
+  const [diagnosticSubjectId, setDiagnosticSubjectId] = useState("");
+  const [effectiveCapabilities, setEffectiveCapabilities] = useState<AuthorizationCapability[]>([]);
   const { providers } = useEditorProviders(false);
 
   const refreshAccess = useCallback(
@@ -89,13 +97,24 @@ export function WorkspaceAdministration({
       .catch((reason: Error) => setError(reason.message));
   }, [gateway, platform.documents, refreshAccess, view]);
 
+  useEffect(() => {
+    if (!gateway || !memberGroupId) {
+      setMembers([]);
+      return;
+    }
+    gateway
+      .groupMembers(memberGroupId)
+      .then(setMembers)
+      .catch((reason: Error) => setError(reason.message));
+  }, [gateway, memberGroupId]);
+
   if (!gateway)
     return (
       <p className="rounded-xl border border-black/[0.08] bg-white p-5 text-sm text-black/55">
         Server administration is not available in a local desktop workspace.
       </p>
     );
-  if (error)
+  if (error && !workspace)
     return (
       <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">
         {error === "administration_resource_not_found"
@@ -105,10 +124,24 @@ export function WorkspaceAdministration({
     );
   if (!workspace?.organizationId) return <p className="text-sm text-black/50">Loading…</p>;
 
+  const perform = async (action: () => Promise<void>) => {
+    setError(undefined);
+    try {
+      await action();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "administration_operation_failed");
+    }
+  };
+
   if (view === "policies")
     return (
       <section className="mt-8 rounded-xl border border-black/[0.08] bg-white p-5">
         <h2 className="m-0 text-lg font-semibold">Default editor policy</h2>
+        {error && (
+          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
+            {error}
+          </p>
+        )}
         <p className="text-sm text-black/50">
           The server resolves these preferences by document family and falls back to another
           available capable provider.
@@ -162,6 +195,43 @@ export function WorkspaceAdministration({
     return (
       <section className="rounded-xl border border-black/[0.08] bg-white p-5">
         <h2 className="m-0 text-lg font-semibold">Append-only audit trail</h2>
+        {error && (
+          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
+            {error}
+          </p>
+        )}
+        <form
+          className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_auto]"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            await perform(async () => {
+              const page = await gateway.audit(workspace.organizationId!, {
+                eventType: auditEventFilter || undefined,
+                workspaceId: auditWorkspaceOnly ? workspace.id : undefined,
+              });
+              setEvents(page.events);
+              setNextCursor(page.nextCursor);
+            });
+          }}
+        >
+          <input
+            className="rounded-lg border border-black/10 px-3"
+            value={auditEventFilter}
+            onChange={(event) => setAuditEventFilter(event.target.value)}
+            placeholder="Exact event type (optional)"
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={auditWorkspaceOnly}
+              onChange={(event) => setAuditWorkspaceOnly(event.target.checked)}
+            />
+            This workspace only
+          </label>
+          <Button type="submit" variant="secondary">
+            Apply filters
+          </Button>
+        </form>
         <div className="mt-4 grid gap-2">
           {events.map((event) => (
             <article key={event.id} className="rounded-lg bg-paper px-4 py-3 text-sm">
@@ -180,9 +250,15 @@ export function WorkspaceAdministration({
           <Button
             variant="secondary"
             onClick={async () => {
-              const page = await gateway.audit(workspace.organizationId!, nextCursor);
-              setEvents((values) => [...values, ...page.events]);
-              setNextCursor(page.nextCursor);
+              await perform(async () => {
+                const page = await gateway.audit(workspace.organizationId!, {
+                  cursor: nextCursor,
+                  eventType: auditEventFilter || undefined,
+                  workspaceId: auditWorkspaceOnly ? workspace.id : undefined,
+                });
+                setEvents((values) => [...values, ...page.events]);
+                setNextCursor(page.nextCursor);
+              });
             }}
           >
             Load more
@@ -194,15 +270,23 @@ export function WorkspaceAdministration({
   const reload = () => refreshAccess(workspace).catch((reason: Error) => setError(reason.message));
   return (
     <div className="grid gap-5">
+      {error && (
+        <p role="alert" className="m-0 rounded-lg bg-red-50 p-3 text-sm text-red-800">
+          {error}
+        </p>
+      )}
       <section className="rounded-xl border border-black/[0.08] bg-white p-5">
         <h2 className="m-0 text-lg font-semibold">Folders</h2>
         <form
-          className="mt-4 flex gap-2"
+          className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]"
           onSubmit={async (event) => {
             event.preventDefault();
-            await gateway.createFolder(workspace.id, folderName);
-            setFolderName("");
-            await reload();
+            await perform(async () => {
+              await gateway.createFolder(workspace.id, folderName, folderParentId || undefined);
+              setFolderName("");
+              setFolderParentId("");
+              await reload();
+            });
           }}
         >
           <input
@@ -212,11 +296,46 @@ export function WorkspaceAdministration({
             placeholder="Folder name"
             required
           />
+          <select
+            className="rounded-lg border border-black/10 px-3 py-2"
+            value={folderParentId}
+            onChange={(event) => setFolderParentId(event.target.value)}
+          >
+            <option value="">Workspace root</option>
+            {folders.map((folder) => (
+              <option key={folder.id} value={folder.id}>
+                {folder.name}
+              </option>
+            ))}
+          </select>
           <Button type="submit">Add folder</Button>
         </form>
-        <p className="mb-0 text-sm text-black/45">
-          {folders.length ? folders.map((folder) => folder.name).join(" · ") : "No folders"}
-        </p>
+        <div className="mt-3 grid gap-2">
+          {folders.map((folder) => (
+            <div
+              key={folder.id}
+              className="flex items-center justify-between rounded-lg bg-paper px-3 py-2 text-sm"
+            >
+              <span>
+                {folder.name}
+                {folder.parentId ? " · nested" : ""}
+              </span>
+              <button
+                type="button"
+                className="text-red-700"
+                onClick={async () => {
+                  await perform(async () => {
+                    await gateway.deleteFolder(folder.id);
+                    await reload();
+                  });
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+          {!folders.length && <p className="mb-0 text-sm text-black/45">No folders</p>}
+        </div>
       </section>
 
       <section className="rounded-xl border border-black/[0.08] bg-white p-5">
@@ -225,9 +344,11 @@ export function WorkspaceAdministration({
           className="mt-4 flex gap-2"
           onSubmit={async (event) => {
             event.preventDefault();
-            await gateway.createGroup(workspace.organizationId!, groupName);
-            setGroupName("");
-            await reload();
+            await perform(async () => {
+              await gateway.createGroup(workspace.organizationId!, groupName);
+              setGroupName("");
+              await reload();
+            });
           }}
         >
           <input
@@ -250,8 +371,10 @@ export function WorkspaceAdministration({
                 type="button"
                 className="text-red-700"
                 onClick={async () => {
-                  await gateway.deleteGroup(group.id);
-                  await reload();
+                  await perform(async () => {
+                    await gateway.deleteGroup(group.id);
+                    await reload();
+                  });
                 }}
               >
                 Delete
@@ -263,9 +386,12 @@ export function WorkspaceAdministration({
           className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]"
           onSubmit={async (event) => {
             event.preventDefault();
-            await gateway.addGroupMember(memberGroupId, memberUserId);
-            setMemberUserId("");
-            setNotice("Member added.");
+            await perform(async () => {
+              await gateway.addGroupMember(memberGroupId, memberUserId);
+              setMemberUserId("");
+              setMembers(await gateway.groupMembers(memberGroupId));
+              setNotice("Member added.");
+            });
           }}
         >
           <select
@@ -290,6 +416,31 @@ export function WorkspaceAdministration({
           />
           <Button type="submit">Add member</Button>
         </form>
+        <div className="mt-3 grid gap-2">
+          {members.map((member) => (
+            <div
+              key={member.id}
+              className="flex items-center justify-between rounded-lg bg-paper px-3 py-2 text-sm"
+            >
+              <span>
+                {member.displayName}
+                {member.email ? ` · ${member.email}` : ""}
+              </span>
+              <button
+                type="button"
+                className="text-red-700"
+                onClick={async () => {
+                  await perform(async () => {
+                    await gateway.removeGroupMember(memberGroupId, member.id);
+                    setMembers(await gateway.groupMembers(memberGroupId));
+                  });
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-xl border border-black/[0.08] bg-white p-5">
@@ -298,15 +449,17 @@ export function WorkspaceAdministration({
           className="mt-4 grid gap-2 md:grid-cols-2"
           onSubmit={async (event) => {
             event.preventDefault();
-            await gateway.createGrant(workspace.organizationId!, {
-              principalType,
-              principalId,
-              scopeType,
-              scopeId,
-              role,
+            await perform(async () => {
+              await gateway.createGrant(workspace.organizationId!, {
+                principalType,
+                principalId,
+                scopeType,
+                scopeId,
+                role,
+              });
+              setPrincipalId("");
+              await reload();
             });
-            setPrincipalId("");
-            await reload();
           }}
         >
           <select
@@ -317,13 +470,29 @@ export function WorkspaceAdministration({
             <option value="user">User</option>
             <option value="group">Group</option>
           </select>
-          <input
-            className="rounded-lg border border-black/10 px-3"
-            value={principalId}
-            onChange={(event) => setPrincipalId(event.target.value)}
-            placeholder="Principal UUID"
-            required
-          />
+          {principalType === "group" ? (
+            <select
+              className="rounded-lg border border-black/10 px-3 py-2"
+              value={principalId}
+              onChange={(event) => setPrincipalId(event.target.value)}
+              required
+            >
+              <option value="">Choose group</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className="rounded-lg border border-black/10 px-3"
+              value={principalId}
+              onChange={(event) => setPrincipalId(event.target.value)}
+              placeholder="User UUID"
+              required
+            />
+          )}
           <select
             className="rounded-lg border border-black/10 px-3 py-2"
             value={scopeType}
@@ -377,8 +546,10 @@ export function WorkspaceAdministration({
                 type="button"
                 className="ml-3 text-red-700"
                 onClick={async () => {
-                  await gateway.deleteGrant(grant.id);
-                  await reload();
+                  await perform(async () => {
+                    await gateway.deleteGrant(grant.id);
+                    await reload();
+                  });
                 }}
               >
                 Remove
@@ -387,6 +558,38 @@ export function WorkspaceAdministration({
           ))}
         </div>
         {notice && <p className="mb-0 text-sm text-forest">{notice}</p>}
+      </section>
+
+      <section className="rounded-xl border border-black/[0.08] bg-white p-5">
+        <h2 className="m-0 text-lg font-semibold">Effective access diagnostics</h2>
+        <p className="text-sm text-black/50">
+          Verify the union of direct, group, and inherited grants at the scope selected above.
+        </p>
+        <form
+          className="grid gap-2 md:grid-cols-[1fr_auto]"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            await perform(async () => {
+              setEffectiveCapabilities(
+                await gateway.effectiveAccess(diagnosticSubjectId, scopeType, scopeId),
+              );
+            });
+          }}
+        >
+          <input
+            className="rounded-lg border border-black/10 px-3"
+            value={diagnosticSubjectId}
+            onChange={(event) => setDiagnosticSubjectId(event.target.value)}
+            placeholder="User UUID"
+            required
+          />
+          <Button type="submit">Check access</Button>
+        </form>
+        <p className="mb-0 mt-3 text-sm text-black/55">
+          {effectiveCapabilities.length
+            ? effectiveCapabilities.join(" · ")
+            : "No diagnostic has been run."}
+        </p>
       </section>
     </div>
   );

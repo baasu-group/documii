@@ -14,8 +14,14 @@ export interface EditorPlatform {
 export interface AdministrationGateway {
   folders(workspaceId: string): Promise<FolderRecord[]>;
   createFolder(workspaceId: string, name: string, parentId?: string): Promise<FolderRecord>;
+  updateFolder(
+    folderId: string,
+    value: { name?: string; parentId?: string | null },
+  ): Promise<FolderRecord>;
+  deleteFolder(folderId: string): Promise<void>;
   groups(organizationId: string): Promise<GroupRecord[]>;
   createGroup(organizationId: string, name: string): Promise<GroupRecord>;
+  updateGroup(groupId: string, name: string): Promise<GroupRecord>;
   deleteGroup(groupId: string): Promise<void>;
   groupMembers(groupId: string): Promise<GroupMember[]>;
   addGroupMember(groupId: string, userId: string): Promise<void>;
@@ -32,13 +38,21 @@ export interface AdministrationGateway {
     },
   ): Promise<AuthorizationGrant>;
   deleteGrant(grantId: string): Promise<void>;
-  audit(organizationId: string, cursor?: string): Promise<AuditPage>;
+  audit(
+    organizationId: string,
+    options?: { cursor?: string; workspaceId?: string; eventType?: string; limit?: number },
+  ): Promise<AuditPage>;
   editorPolicies(organizationId: string): Promise<EditorPolicy[]>;
   setEditorPolicy(
     organizationId: string,
     family: DocumentFamily,
     providerId: EditorProviderId,
   ): Promise<EditorPolicy>;
+  effectiveAccess(
+    subjectId: string,
+    scopeType: "organization" | "workspace" | "folder" | "document",
+    scopeId: string,
+  ): Promise<AuthorizationCapability[]>;
 }
 
 export interface DocumentGateway {
@@ -72,6 +86,7 @@ import type {
   GroupMember,
   AuthorizationGrant,
   AuthorizationRole,
+  AuthorizationCapability,
   AuditPage,
   EditorPolicy,
   DocumentFamily,

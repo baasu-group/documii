@@ -1,0 +1,52 @@
+name: Collabora acceptance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  oidc-collabora-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.7.1 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Start PostgreSQL, Keycloak, API, and Collabora
+        env:
+          COLLABORA_ENABLED: "true"
+        run: docker compose -f deployments/compose/docker-compose.yml --profile application --profile collabora --profile acceptance up --build -d
+      - name: Wait for acceptance bootstrap and services
+        run: |
+          docker compose -f deployments/compose/docker-compose.yml wait bootstrap-acceptance
+          timeout 180 sh -c 'until curl -fsS http://127.0.0.1:8080/ready && curl -fsS http://127.0.0.1:9980/hosting/discovery; do sleep 3; done'
+      - name: Start web application
+        run: |
+          pnpm --filter @documi/web dev --host 0.0.0.0 > documi-web.log 2>&1 &
+          timeout 60 sh -c 'until curl -fsS http://127.0.0.1:5173; do sleep 2; done'
+      - name: Install pinned browser test runtime
+        run: |
+          npm install --prefix tests/e2e --no-package-lock --ignore-scripts
+          tests/e2e/node_modules/.bin/playwright install --with-deps chromium
+      - name: Run real OIDC and Collabora acceptance
+        run: tests/e2e/node_modules/.bin/playwright test --config tests/e2e/playwright.config.mjs --project=chromium
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collabora-acceptance-artifacts
+          path: |
+            playwright-report
+            test-results
+            documi-web.log
+          if-no-files-found: ignore
+      - if: always()
+        run: docker compose -f deployments/compose/docker-compose.yml --profile application --profile collabora --profile acceptance logs --no-color
+      - if: always()
+        run: docker compose -f deployments/compose/docker-compose.yml --profile application --profile collabora --profile acceptance down -v

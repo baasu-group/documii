@@ -2,7 +2,7 @@
 
 This guide covers the current Documi bootstrap on a local machine: installation, web-only testing, the Go API, PostgreSQL/pgvector, Temporal, Keycloak, Python workers, the Tauri desktop shell, verification, shutdown, and common errors.
 
-> **Current product status:** local Tauri workspaces and PostgreSQL server workspaces have separate native document gateways with immutable versions. Server authentication, hierarchy-aware grants, audit, validated Office uploads, and Collabora session/WOPI persistence are composed. Collabora remains partial until blank Office templates and a real-container browser test are completed.
+> **Current product status:** local Tauri workspaces and PostgreSQL server workspaces have separate native document gateways with immutable versions. Server authentication, hierarchy-aware grants and administration UI, audit, checksum-pinned Office creation, validated uploads, and Collabora session/WOPI persistence are composed. Collabora remains partial until the checked-in real-container browser acceptance completes on a Docker-capable runner.
 
 ## 1. Choose what you want to test
 
@@ -136,7 +136,7 @@ Open `http://localhost:5173` in a browser. You should see the Documi shell with:
 
 Click each navigation item and verify that its placeholder page loads. Stop the server with `Ctrl+C`.
 
-The web UI can render the shared document workflow, but its server gateway is not persistence-backed yet. Use the Tauri path for durable local documents.
+The web UI uses the authenticated PostgreSQL-backed server gateway when the API is running. Tauri uses a separate SQLite/filesystem gateway for durable local documents; the two workspace authorities do not synchronize.
 
 ### Use a different web port
 
@@ -344,12 +344,12 @@ docker compose -f deployments/compose/docker-compose.yml \
 
 The containerized API is available at `http://localhost:8080`. Stop the foreground command with `Ctrl+C`, then remove its containers with the normal shutdown command in the next section.
 
-### Optional Collabora foundation
+### Optional Collabora editing
 
 Start the API and Collabora profiles together:
 
 ```sh
-docker compose -f deployments/compose/docker-compose.yml \
+COLLABORA_ENABLED=true docker compose -f deployments/compose/docker-compose.yml \
   --profile application --profile collabora up --build
 ```
 
@@ -359,7 +359,23 @@ Verify the Collabora service itself:
 curl -fsS http://localhost:9980/hosting/discovery
 ```
 
-The API reports Collabora available only when it can reach discovery and the PostgreSQL document/storage gateway is ready. Supported Office/OpenDocument uploads can then receive persisted sessions and WOPI locks/saves. Blank Office template creation is not implemented yet, so this is not a complete browser acceptance test.
+The API reports Collabora available only when it can reach discovery and the PostgreSQL document/storage gateway plus all checksum-pinned Office templates are ready. Open **Documents** and choose **Office · Text Document**, **Spreadsheet**, or **Presentation**. Creation writes a trusted blank template as version 1; Collabora saves create later immutable versions.
+
+For the full development OIDC/browser acceptance profile, including the deterministic test owner, run:
+
+```sh
+COLLABORA_ENABLED=true docker compose -f deployments/compose/docker-compose.yml \
+  --profile application --profile collabora --profile acceptance up --build
+```
+
+Then start `pnpm dev`, open `http://localhost:5173`, and sign in with the development-only acceptance account:
+
+```text
+username: acceptance-owner
+password: documi_acceptance_only
+```
+
+This credential exists only in the checked-in development Keycloak realm. Never use that realm or password in production. The automated test is `tests/e2e/collabora.spec.mjs`; the scheduled/manual workflow is `.github/workflows/collabora-acceptance.yml` and performs OIDC login, browser session creation, real Collabora iframe loading, WOPI locking/save, immutable-version verification, and audit verification.
 
 ### Bootstrap the first server owner
 
@@ -485,12 +501,31 @@ cd services/core && go test ./...
 cd services/core && go test -race ./internal/modules/documents/editors/collabora ./internal/modules/documents
 ```
 
+The administration/template delivery iteration also completed:
+
+```sh
+cd services/core && go test ./... && go vet ./... && go build ./...
+pnpm --filter @documi/shared-types typecheck
+pnpm --filter @documi/api-client typecheck
+pnpm --filter @documi/app-shell typecheck
+pnpm --filter @documi/web typecheck
+pnpm --filter @documi/desktop typecheck
+pnpm exec eslint packages/api-client/src packages/app-shell/src apps/web/src --max-warnings 0
+pnpm --filter @documi/app-shell test
+pnpm --filter @documi/web test
+pnpm --filter @documi/desktop test
+pnpm --filter @documi/web build
+pnpm --filter @documi/desktop build
+```
+
 The API was also started on `127.0.0.1:18080`; `/health`, `/ready`, `/api/v1/auth/config`, `/api/v1/me`, and `/api/v1/document-editors` returned successful JSON responses. Against an isolated PostgreSQL 17 cluster, owner bootstrap, authorized workspace listing, native create/save/history, stale-save conflict, storage/version counts, audit creation, and a second user's non-enumerating denial were exercised. The processes and isolated data were then stopped and removed.
 
 Two environment limitations prevented complete runtime verification on this machine:
 
 - `cargo`/`rustfmt` were not installed, so the Tauri Rust module, bundled SQLite migration, and restart-persistence flow were not compiled or executed here.
 - `docker` was not installed, so Keycloak/OIDC and Collabora were not executed against their real containers. Migration `000002` and the native server authorization/version flow were instead validated with an isolated Homebrew PostgreSQL 17 cluster; migration `000001` requires pgvector and correctly failed on that stock server.
+
+The repository now runs those missing checks on capacity-managed CI: the desktop job executes the file-backed SQLite restart test and a native Linux Tauri build, while the Collabora acceptance workflow starts PostgreSQL, Keycloak, the Go API, and Collabora before driving the browser. Until those jobs pass, keep both provider statuses at **Partial**.
 
 The repository-wide `go test -race ./...` build was also attempted, but the machine's nearly full disk exhausted the Go temporary build volume. The two changed persistence/WOPI packages passed with race instrumentation using the narrower command above; the complete race suite remains a CI or higher-capacity-machine check.
 
@@ -683,7 +718,22 @@ The open document is based on an older immutable version. Reopen it to load the 
 
 ### Collabora is running but the editor is unavailable
 
-Check `COLLABORA_ENABLED`, both Collabora URLs, `DOCUMI_PUBLIC_URL`, the editor-token secret, PostgreSQL migrations, discovery reachability, and whether the document is a supported Office type. The gateway remains fail-closed if discovery or document persistence is unavailable. Browsers must never construct WOPI URLs themselves.
+Check `COLLABORA_ENABLED`, both Collabora URLs, `DOCUMI_PUBLIC_URL`, the editor-token secret, PostgreSQL migrations, discovery reachability, checksum-pinned Office assets, and whether the document is a supported Office type. The gateway remains fail-closed if discovery, templates, or document persistence is unavailable. Browsers must never construct WOPI URLs themselves.
+
+### `office_templates_unavailable`
+
+Documi decoded a bundled Office template whose SHA-256 no longer matches its pinned manifest. Do not bypass the check. Restore the exact reviewed asset or intentionally update the asset, provenance, expected hash, package-integrity test, and architecture documentation together.
+
+### Build fails with `no space left on device`
+
+Go, Rust/Tauri, Docker images, and browser runtimes need several gigabytes of temporary capacity. Verify free space before retrying:
+
+```sh
+df -h / /tmp
+docker system df
+```
+
+Clean only caches or Docker resources you recognize and intend to remove. Do not delete the Documi PostgreSQL, Keycloak, or document volumes unless you explicitly want to reset local data. A frontend-only build is not evidence that Rust, Docker, or Collabora acceptance passed.
 
 ## 14. Recommended first local test checklist
 
@@ -698,3 +748,5 @@ Check `COLLABORA_ENABLED`, both Collabora URLs, `DOCUMI_PUBLIC_URL`, the editor-
 - [ ] Both Python workers start and stop cleanly.
 - [ ] `pnpm check` passes with no unexpected skipped toolchains.
 - [ ] Optional: Tauri opens a native window after its prerequisites are installed.
+- [ ] Close and restart Tauri; the same local document and immutable version history remain.
+- [ ] Optional: the `Collabora acceptance` workflow passes against real Keycloak and Collabora containers.

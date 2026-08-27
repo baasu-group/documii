@@ -61,6 +61,10 @@ func TestPostgresAdministrationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	group, err = service.UpdateGroup(ctx, owner.String(), group.ID, "Finance reviewers")
+	if err != nil || group.Name != "Finance reviewers" {
+		t.Fatalf("UpdateGroup() = %#v, %v", group, err)
+	}
 	if err := service.AddMember(ctx, owner.String(), group.ID, member.String()); err != nil {
 		t.Fatal(err)
 	}

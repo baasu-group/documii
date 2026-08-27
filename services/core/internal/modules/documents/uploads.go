@@ -11,8 +11,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/documi/documi/services/core/internal/modules/permissions"
 	"github.com/documi/documi/services/core/internal/modules/documents/templates"
+	"github.com/documi/documi/services/core/internal/modules/permissions"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -26,7 +26,7 @@ type UploadRequest struct {
 
 type CreateOfficeRequest struct {
 	ActorID, WorkspaceID, IdempotencyKey, Title, Family string
-	FolderID                                             *string
+	FolderID                                            *string
 }
 
 func (service *Service) CreateOffice(ctx context.Context, request CreateOfficeRequest) (Document, error) {
@@ -181,9 +181,37 @@ func validateOfficeArchive(content []byte, format officeFormat) error {
 	}
 	foundTypes := false
 	foundODF := format.ODFMIME == ""
+	var uncompressed uint64
+	if len(reader.File) > 10_000 {
+		return ErrInvalidDocument
+	}
 	for _, file := range reader.File {
+		name := strings.ReplaceAll(file.Name, "\\", "/")
+		clean := path.Clean(name)
+		if name == "" || strings.HasPrefix(name, "/") || clean == ".." || strings.HasPrefix(clean, "../") || clean != strings.TrimSuffix(name, "/") {
+			return ErrInvalidDocument
+		}
+		lowerName := strings.ToLower(name)
+		if strings.Contains(lowerName, "vbaproject") || strings.Contains(lowerName, "/activex/") || strings.Contains(lowerName, "/embeddings/") {
+			return ErrInvalidDocument
+		}
+		archiveLimit := uint64(MaxDocumentBytes * 5)
+		if file.UncompressedSize64 > archiveLimit || uncompressed > archiveLimit-file.UncompressedSize64 {
+			return ErrInvalidDocument
+		}
+		uncompressed += file.UncompressedSize64
 		if file.Name == "[Content_Types].xml" {
 			foundTypes = true
+			stream, openErr := file.Open()
+			if openErr != nil {
+				return ErrInvalidDocument
+			}
+			value, readErr := io.ReadAll(io.LimitReader(stream, (1<<20)+1))
+			stream.Close()
+			lowerTypes := strings.ToLower(string(value))
+			if readErr != nil || len(value) > 1<<20 || strings.Contains(lowerTypes, "macroenabled") || strings.Contains(lowerTypes, "vbaproject") {
+				return ErrInvalidDocument
+			}
 		}
 		if file.Name == "mimetype" && format.ODFMIME != "" {
 			stream, err := file.Open()

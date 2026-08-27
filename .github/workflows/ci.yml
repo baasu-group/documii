@@ -72,10 +72,23 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
         working-directory: .
+      - uses: pnpm/action-setup@v4
+        if: runner.os == 'Linux'
+        with: { version: 10.7.1 }
+      - uses: actions/setup-node@v4
+        if: runner.os == 'Linux'
+        with: { node-version: 22, cache: pnpm }
+      - if: runner.os == 'Linux'
+        run: pnpm install --frozen-lockfile
+        working-directory: .
       - run: rustup component add rustfmt clippy
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - name: Build native Tauri application on a capacity-managed runner
+        if: runner.os == 'Linux'
+        run: pnpm --filter @documi/desktop tauri build --no-bundle
+        working-directory: .
 
   python:
     runs-on: ubuntu-latest

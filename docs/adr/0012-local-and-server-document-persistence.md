@@ -12,6 +12,8 @@ Documi Desktop must support a local workspace without a server, while company wo
 
 Local and server workspaces implement the same document/version contracts through separate adapters. Local workspaces use embedded SQLite plus application-controlled files behind fixed Tauri commands. Server workspaces use the Go Documents service, PostgreSQL, and a configured StorageProvider. React selects a `DocumentGateway` from workspace mode and contains no persistence logic.
 
+Contract conformance includes closing and reopening the file-backed SQLite adapter, then verifying the same document, content hash, and current immutable version. The native CI build executes this test before packaging; a frontend-only desktop build is insufficient evidence of persistence correctness.
+
 Every save supplies a base version and creates an immutable version. Local and server IDs and histories never merge automatically. Shared contract fixtures must exercise both adapters to limit semantic drift.
 
 ## Consequences
