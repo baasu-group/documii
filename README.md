@@ -30,14 +30,12 @@ Only Node/pnpm is needed to run the browser shell. Root checks run every install
 ## First setup
 
 ```sh
-test -f .env || cp .env.example .env
+cp .env.example .env
 pnpm bootstrap
 pnpm dev
 ```
 
 Open `http://localhost:5173`. The browser app renders product navigation for Home, Documents, Data, Forms, Tasks, Automations, AI, Integrations, and Settings.
-
-For the complete local process, expected results, shutdown steps, and error troubleshooting, see [run.md](run.md).
 
 ## Development infrastructure
 
@@ -81,14 +79,17 @@ pnpm build
 pnpm check
 ```
 
+
 The scripts are intentionally visible under `scripts/`. Missing optional toolchains are reported locally rather than hiding what was skipped; CI provisions them all.
 
 ## Security and air-gapped operation
 
-Never commit `.env`, credentials, customer data, model weights, or local databases. AI defaults to the disabled provider and no model is downloaded automatically. See [SECURITY.md](SECURITY.md) and [air-gap deployment guidance](deployments/airgap/README.md).
+Never commit `.env`, credentials, customer data, model weights, or local databases. AI defaults to the disabled provider and no model is downloaded automatically. 
+See [SECURITY.md](SECURITY.md) and [air-gap deployment guidance](deployments/airgap/README.md).
 
 ## Project status
 
 The next milestone is the first thin production slice: authenticated upload → filesystem storage → immutable document/version metadata → append-only audit. Parsing, chunking, extraction, approval, and permission-aware search then extend that same record rather than forming isolated demos.
 
-Documi is licensed under Apache License 2.0. See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Documii is licensed under Apache License 2.0. 
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

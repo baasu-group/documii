@@ -2,32 +2,7 @@
 
 This guide covers the current Documi bootstrap on a local machine: installation, web-only testing, the Go API, PostgreSQL/pgvector, Temporal, Keycloak, Python workers, the Tauri desktop shell, verification, shutdown, and common errors.
 
-> **Current product status:** this repository is an architecture bootstrap with a working native Tiptap preview and editor-provider/WOPI foundations. Native saves are preview-only until the persistence-backed Documents/version service exists. Collabora, ONLYOFFICE, Google, and LibreOffice save-back fail closed or remain unavailable rather than bypassing permissions and versions.
-
-## Local verification status
-
-Last exercised on macOS on 2026-08-26:
-
-| Check | Result | Observation |
-| --- | --- | --- |
-| `pnpm bootstrap` | Passed | Frozen pnpm, Go, and uv dependencies were already current |
-| Live Vite server | Passed | HTML and transformed React/AppShell module served from `http://localhost:5173` |
-| Browser click-through | Not run | No controllable browser was connected; navigation remains covered by its unit test |
-| Live Go API | Passed | All three endpoints returned expected JSON and graceful shutdown completed |
-| Python document worker | Passed | Started, emitted expected bootstrap-idle warning, and stopped cleanly |
-| Python AI worker | Passed | Started, emitted expected bootstrap-idle warning, and stopped cleanly |
-| Go Temporal worker | Environment-blocked | Correctly reported connection refused because Temporal was not running |
-| `pnpm check` | Passed | Formatting, lint, type checks, tests, and builds all succeeded |
-| Docker infrastructure | Environment-blocked | Docker is not installed on the verification machine |
-| Database migration | Environment-blocked | A different local PostgreSQL owns port 5432 and has no `documi` role |
-| Desktop frontend build | Passed | TypeScript and Vite production build succeeded |
-| Native Tauri build | Environment-blocked | Xcode is installed, but Rust/Cargo are not installed |
-| Native editor package | Passed | Type check, native-format tests, web build, and desktop frontend build passed |
-| Editor API/WOPI unit tests | Passed | Provider resolution, air-gap availability, WOPI permission/read-only/save-version boundaries, and signing tests passed |
-| Live editor API | Passed | Availability returned normalized providers; missing WOPI token returned `401` |
-| Collabora container | Environment-blocked | Docker is not installed; optional profile was not started |
-
-The sections below remain the canonical process. Environment-blocked items should be rerun after their prerequisites are installed; they are not recorded as successful tests.
+> **Current product status:** this repository is an architecture bootstrap. You can test the shared application shell, navigation, service health endpoints, configuration, worker startup, database migration convention, and development infrastructure. Document upload, authentication enforcement, invoice processing, approvals, and RAG are not implemented yet.
 
 ## 1. Choose what you want to test
 
@@ -105,11 +80,10 @@ From a terminal, enter the repository:
 cd /Users/basantashrestha/Development/documii/documii
 ```
 
-Create local configuration without overwriting an existing `.env`:
+Create local configuration:
 
 ```sh
-test -f .env || cp .env.example .env
-test -f .env && echo ".env is ready"
+cp .env.example .env
 ```
 
 The values in `.env.example` are safe development placeholders. Do not use its passwords in a public or production deployment, and never commit `.env`.
@@ -181,10 +155,6 @@ The bootstrap API does not require PostgreSQL for its three current endpoints.
 Copying `.env` does **not** automatically export it into local Go or Python processes. On macOS/Linux, load it into the current terminal first:
 
 ```sh
-if [ ! -f .env ]; then
-  echo "Missing .env; copy .env.example first"
-  exit 1
-fi
 set -a
 . ./.env
 set +a
@@ -214,8 +184,6 @@ Expected responses:
 
 Stop the API with `Ctrl+C`. A graceful stop writes an `api stopped` structured log entry.
 
-When the API is launched through pnpm, pnpm may also print `ELIFECYCLE` or an exit-code message after `Ctrl+C`. If the API logged `api stopped` immediately before it, the application shutdown itself was graceful; the wrapper is reporting the interrupt signal.
-
 ### Test air-gapped configuration
 
 ```sh
@@ -223,71 +191,6 @@ AIR_GAPPED=true DOCUMI_HTTP_ADDRESS=:8080 pnpm dev:api
 ```
 
 The system-info response should then contain `"airGapped":true`.
-
-### Test document editors locally
-
-Run the Go API in one terminal, then the web app in another:
-
-```sh
-set -a
-. ./.env
-set +a
-pnpm dev:api
-```
-
-```sh
-pnpm --filter @documi/web dev
-```
-
-Open `http://localhost:5173`, choose **Documents**, then **Documi Document**. The browser route changes to `/documents/local-preview/edit` and the Tiptap editor supports headings, lists, task lists, code blocks, tables, undo, and redo. **Save** currently confirms only the local preview; it does not claim to create a durable document version.
-
-Verify provider availability and the WOPI authorization boundary:
-
-```sh
-curl -fsS http://localhost:8080/api/v1/document-editors
-curl -i http://localhost:8080/api/v1/wopi/files/example
-```
-
-The first response includes `native` as available and disabled reasons for optional providers. The second must return `401 Unauthorized` because no short-lived editor token was supplied.
-
-### Optional Collabora profile
-
-Collabora runs in a separate container; browser users do not install LibreOffice. Start infrastructure, the API, and CODE with:
-
-```sh
-COLLABORA_ENABLED=true \
-COLLABORA_URL=http://collabora:9980 \
-COLLABORA_PUBLIC_URL=http://localhost:9980 \
-docker compose -f deployments/compose/docker-compose.yml \
-  --profile application --profile collabora up --build
-```
-
-The pinned development image is available on port `9980`. In the current repository, the API deliberately reports Collabora unavailable with reason `document_service_unavailable`: the WOPI protocol and security boundary exist, but the authenticated Documents/version gateway and editor-session issuance do not. This profile validates deployment wiring only; it does not yet provide an editable Office document.
-
-Common Collabora errors:
-
-- `docker: command not found`: install/start Docker, or continue with the native editor.
-- API exits with a token-secret error: set `DOCUMI_EDITOR_TOKEN_SECRET` to at least 32 random characters.
-- Collabora loads but cannot reach WOPI: confirm the API and Collabora share the Compose network and that `COLLABORA_URL` uses `http://collabora:9980` inside Compose.
-- Provider says `document_service_unavailable`: expected in this foundation; do not work around it by exposing storage paths.
-
-### Desktop and optional LibreOffice
-
-Install Rust/Tauri prerequisites, then run the API and desktop frontend:
-
-```sh
-pnpm dev:api
-```
-
-```sh
-pnpm --filter @documi/desktop tauri dev
-```
-
-Open **Settings → Document Editors**. The Tauri command checks standard installation locations and the normal `soffice`/`libreoffice` executable lookup. If missing, Documi remains usable and displays the optional-install message. Install LibreOffice yourself only if you want this feature; Documi does not install it. Opening a controlled working copy and **Save back to Documi** are not implemented yet.
-
-### Google Workspace configuration
-
-Google Workspace is intentionally unavailable in this build. The connector, encrypted SecretStore, OAuth callback, and import/export services do not yet exist, so there are no safe Google client-secret environment variables to configure. Do not put refresh tokens in document metadata or `.env`. With `AIR_GAPPED=true`, the availability API returns `air_gapped` for all Google editor providers.
 
 ## 6. Start server infrastructure with Docker
 
@@ -305,15 +208,6 @@ This starts:
 | Temporal | `localhost:7233` | Durable workflow engine |
 | Temporal UI | `http://localhost:8082` | Workflow inspection |
 | Keycloak | `http://localhost:8081` | Development OIDC provider |
-
-If another local PostgreSQL already owns port 5432, edit `.env` before starting Compose. Change both values together, for example:
-
-```dotenv
-DOCUMI_POSTGRES_PORT=55432
-DOCUMI_DATABASE_URL=postgres://documi:documi_dev_only@localhost:55432/documi?sslmode=disable
-```
-
-Compose maps the selected host port to PostgreSQL's internal port 5432. The API and migration utility use `DOCUMI_DATABASE_URL`, so its port must match.
 
 Check container state:
 
@@ -603,16 +497,6 @@ Docker volumes retain the password used when PostgreSQL was first created. Chang
 
 Either restore the original value or, for disposable development data only, perform the destructive volume reset documented in **Stop and clean up**, then start infrastructure again.
 
-### PostgreSQL reports `role "documi" does not exist`
-
-If this appears before Documi's Compose PostgreSQL has started, you are probably connecting to a different PostgreSQL already installed on the machine. Identify the listener without changing it:
-
-```sh
-lsof -nP -iTCP:5432 -sTCP:LISTEN
-```
-
-Do not create Documi roles in an unrelated database just to hide the conflict. Either stop that local server while testing Documi or configure `DOCUMI_POSTGRES_PORT` and `DOCUMI_DATABASE_URL` to use another host port as shown in **Start server infrastructure with Docker**.
-
 ### Migration reports that `DOCUMI_DATABASE_URL` is required
 
 The `.env` file exists but was not exported into the terminal. Load it and retry:
@@ -648,8 +532,6 @@ Stop the conflicting process or change the appropriate port. For the web app, us
 DOCUMI_HTTP_ADDRESS=:18080 pnpm dev:api
 ```
 
-Use the exact host printed by Vite. On a machine where `localhost` resolves to IPv6, `http://localhost:5173` can work while `http://127.0.0.1:5173` does not unless Vite is explicitly configured to bind IPv4.
-
 ### Browser page is blank or does not update
 
 Check the terminal and browser developer console first. Restart Vite with a forced dependency refresh:
@@ -659,10 +541,6 @@ pnpm --filter @documi/web dev -- --force
 ```
 
 Then hard-refresh the browser.
-
-### Node prints `ExperimentalWarning: Type Stripping`
-
-This was observed with the odd-numbered Node.js 23 release while loading TypeScript build configuration. It did not fail the build, but the recommended fix is to use an LTS Node release such as Node.js 22 or a newer supported LTS version.
 
 ### Tauri says Rust or Cargo is missing
 
@@ -704,14 +582,13 @@ The default configuration is:
 ```text
 DOCUMI_AI_PROVIDER=disabled
 ```
-
 Only the provider abstraction and fail-closed disabled implementation exist. Ollama, llama.cpp, vLLM, OpenAI-compatible, and custom HTTP adapters are future work. No model is downloaded automatically.
 
 ### The UI does not upload documents or sign in
 
 That behavior has not been implemented yet. The bootstrap UI is intended to validate shared web/desktop architecture and navigation. The next milestone is authenticated workspace context plus immutable document upload/storage/version/audit.
 
-## 14. Recommended first local test checklist
+##  14. Recommended first local test checklist
 
 - [ ] `pnpm bootstrap` completes.
 - [ ] `pnpm dev` opens the web shell at `http://localhost:5173`.
@@ -724,3 +601,4 @@ That behavior has not been implemented yet. The bootstrap UI is intended to vali
 - [ ] Both Python workers start and stop cleanly.
 - [ ] `pnpm check` passes with no unexpected skipped toolchains.
 - [ ] Optional: Tauri opens a native window after its prerequisites are installed.
+
