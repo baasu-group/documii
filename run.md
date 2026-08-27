@@ -518,14 +518,37 @@ pnpm --filter @documi/web build
 pnpm --filter @documi/desktop build
 ```
 
+The migration-backed administration integration was rerun against an isolated PostgreSQL 17 cluster on 2026-08-27. Migration `000002` was applied and the tests exercised folder hierarchy, group rename and membership, inherited group grants, effective-access diagnostics, editor policy persistence, cursor-paginated audit results, and last-owner protection:
+
+```sh
+cd services/core
+DOCUMI_TEST_DATABASE_URL='postgres://<local-user>@127.0.0.1:<temporary-port>/documi_test?sslmode=disable' \
+  go test ./internal/modules/administration ./internal/modules/documents/... ./internal/modules/permissions/...
+```
+
+This passed. The temporary server used trust authentication on loopback solely for the isolated test and was stopped immediately afterward; use authenticated PostgreSQL configuration for persistent development or production environments.
+
+After installing the Rust toolchain, native desktop verification also completed on macOS:
+
+```sh
+cd apps/desktop/src-tauri
+cargo fmt --check
+cargo test
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 cargo clippy --all-targets -- -D warnings
+cd ../../../
+CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_INCREMENTAL=0 \
+  pnpm --filter @documi/desktop tauri build --no-bundle
+```
+
+All five Rust tests passed, including closing and reopening the file-backed adapter and verifying the same document content and version. Strict Clippy and the native release build also passed. Tauri requires an RGBA `src-tauri/icons/icon.png`; the missing asset originally failed compilation and is now included.
+
 The API was also started on `127.0.0.1:18080`; `/health`, `/ready`, `/api/v1/auth/config`, `/api/v1/me`, and `/api/v1/document-editors` returned successful JSON responses. Against an isolated PostgreSQL 17 cluster, owner bootstrap, authorized workspace listing, native create/save/history, stale-save conflict, storage/version counts, audit creation, and a second user's non-enumerating denial were exercised. The processes and isolated data were then stopped and removed.
 
-Two environment limitations prevented complete runtime verification on this machine:
+One environment limitation prevented complete runtime verification on this machine:
 
-- `cargo`/`rustfmt` were not installed, so the Tauri Rust module, bundled SQLite migration, and restart-persistence flow were not compiled or executed here.
-- `docker` was not installed, so Keycloak/OIDC and Collabora were not executed against their real containers. Migration `000002` and the native server authorization/version flow were instead validated with an isolated Homebrew PostgreSQL 17 cluster; migration `000001` requires pgvector and correctly failed on that stock server.
+- `docker` is not installed, so Keycloak/OIDC and Collabora were not executed against their real containers. Migration `000002` and the native server authorization/version flow were instead validated with an isolated Homebrew PostgreSQL 17 cluster; migration `000001` requires pgvector and correctly failed on that stock server.
 
-The repository now runs those missing checks on capacity-managed CI: the desktop job executes the file-backed SQLite restart test and a native Linux Tauri build, while the Collabora acceptance workflow starts PostgreSQL, Keycloak, the Go API, and Collabora before driving the browser. Until those jobs pass, keep both provider statuses at **Partial**.
+The repository also repeats native checks on capacity-managed CI. The remaining Collabora acceptance workflow starts PostgreSQL, Keycloak, the Go API, and Collabora before driving the browser. Until that job passes, keep Collabora at **Partial**; native document persistence is **Working**.
 
 The repository-wide `go test -race ./...` build was also attempted, but the machine's nearly full disk exhausted the Go temporary build volume. The two changed persistence/WOPI packages passed with race instrumentation using the narrower command above; the complete race suite remains a CI or higher-capacity-machine check.
 

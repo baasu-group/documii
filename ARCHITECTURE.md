@@ -10,7 +10,7 @@ The first production journey is an invoice moving from upload through immutable 
 
 ## 2. Product non-goals
 
-The bootstrap does not provide production invoice automation, offline multi-master synchronization, mobile apps, collaborative Office editing, a plugin marketplace, a custom OCR or LLM runtime, a custom authentication protocol, or a custom distributed object store. Kubernetes, Kafka, Elasticsearch, Redis, GraphQL, a service mesh, and a separate vector database are not development prerequisites.
+The bootstrap does not provide production invoice automation, offline multi-master synchronization, mobile apps, a custom collaborative Office protocol, a plugin marketplace, a custom OCR or LLM runtime, a custom authentication protocol, or a custom distributed object store. Browser Office collaboration is supplied only through the optional Collabora provider and Documi's WOPI host. Kubernetes, Kafka, Elasticsearch, Redis, GraphQL, a service mesh, and a separate vector database are not development prerequisites.
 
 ## 3. Architectural principles
 
@@ -191,13 +191,13 @@ Authorization is applied in the database query that selects candidates, not afte
 
 ## 19. Permission and security model
 
-Resources inherit through Organization → Workspace → Folder → Document. Roles eventually include Owner, Admin, Manager, Editor, Contributor, Viewer, and Guest, with explicit ACL grants/denies governed by a documented precedence model. Every request carries authenticated subject and organization/workspace context. Authorization belongs in domain policy services and repository query constraints, not UI visibility alone.
+Resources inherit through Organization → Workspace → Folder → Document. Owner, Admin, Manager, Editor, Contributor, Viewer, and Guest are capability bundles. User and group grants are additive across a resource and its ancestors; this milestone deliberately has no deny rows or deny precedence. Every request carries authenticated subject and organization/workspace context. Authorization belongs in domain policy services and repository query constraints, not UI visibility alone.
 
 Input is validated at trust boundaries. Storage keys are opaque. Downloads are authorized and audited. Service-to-service identities receive least privilege. Security tests specifically cover cross-tenant access and retrieval filtering.
 
 ## 20. Audit architecture
 
-Login; document open/download/create/update/delete; permission changes; AI queries; workflow starts/approvals/rejections; and record creates/updates are eventually appended to `audit_events`. Application code never updates or deletes audit history. Entries capture actor, action, target, scope, timestamp, outcome, request correlation, and safe metadata. Sensitive content and secrets are excluded. Database-level immutability enforcement is considered when the schema is introduced.
+Implemented document, folder, group, membership, grant, editor-policy, and Collabora operations append safe events to `audit_events` in their mutation transaction. Application code never updates or deletes audit history, and database triggers reject audit updates and deletes. Entries capture actor, action, target, scope, timestamp, request correlation where available, and safe metadata; document content, provider tokens, and secrets are excluded. Future domains must follow the same append-only boundary.
 
 ## 21. Secrets architecture
 

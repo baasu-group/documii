@@ -96,7 +96,7 @@ Secrets require at least 32 characters when their provider is enabled. URLs are 
 
 | Provider | Status | Current behavior |
 | --- | --- | --- |
-| Native | Partial | server workflow is integration-tested; a file-backed SQLite restart test and native Tauri CI build are defined but have not run on this workstation |
+| Native | Working | server workflow is integration-tested; all native Rust tests, including file-backed SQLite restart persistence, strict Clippy, and a macOS no-bundle Tauri release build pass locally |
 | Collabora | Partial | managed Office creation, persisted sessions/WOPI/locks/save versions, and a scheduled real-container OIDC/browser acceptance are implemented; the acceptance has not run on this workstation |
 | LibreOffice Desktop | Foundation only | desktop detection command and missing-state UI; open/save-back deferred |
 | LibreOffice Headless | Foundation only | converter interface only |

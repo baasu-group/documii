@@ -312,14 +312,46 @@ export function WorkspaceAdministration({
         </form>
         <div className="mt-3 grid gap-2">
           {folders.map((folder) => (
-            <div
+            <form
               key={folder.id}
-              className="flex items-center justify-between rounded-lg bg-paper px-3 py-2 text-sm"
+              className="grid gap-2 rounded-lg bg-paper px-3 py-2 text-sm md:grid-cols-[1fr_1fr_auto_auto]"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const values = new FormData(event.currentTarget);
+                await perform(async () => {
+                  await gateway.updateFolder(folder.id, {
+                    name: String(values.get("name") ?? ""),
+                    parentId: String(values.get("parentId") ?? "") || null,
+                  });
+                  await reload();
+                });
+              }}
             >
-              <span>
-                {folder.name}
-                {folder.parentId ? " · nested" : ""}
-              </span>
+              <input
+                aria-label={`Name for ${folder.name}`}
+                className="rounded-lg border border-black/10 px-3 py-2"
+                name="name"
+                defaultValue={folder.name}
+                required
+              />
+              <select
+                aria-label={`Parent for ${folder.name}`}
+                className="rounded-lg border border-black/10 px-3 py-2"
+                name="parentId"
+                defaultValue={folder.parentId ?? ""}
+              >
+                <option value="">Workspace root</option>
+                {folders
+                  .filter((candidate) => candidate.id !== folder.id)
+                  .map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                    </option>
+                  ))}
+              </select>
+              <Button type="submit" variant="secondary">
+                Save
+              </Button>
               <button
                 type="button"
                 className="text-red-700"
@@ -332,7 +364,7 @@ export function WorkspaceAdministration({
               >
                 Delete
               </button>
-            </div>
+            </form>
           ))}
           {!folders.length && <p className="mb-0 text-sm text-black/45">No folders</p>}
         </div>
@@ -362,11 +394,28 @@ export function WorkspaceAdministration({
         </form>
         <div className="mt-3 grid gap-2">
           {groups.map((group) => (
-            <div
+            <form
               key={group.id}
-              className="flex items-center justify-between rounded-lg bg-paper px-3 py-2 text-sm"
+              className="grid gap-2 rounded-lg bg-paper px-3 py-2 text-sm md:grid-cols-[1fr_auto_auto]"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const values = new FormData(event.currentTarget);
+                await perform(async () => {
+                  await gateway.updateGroup(group.id, String(values.get("name") ?? ""));
+                  await reload();
+                });
+              }}
             >
-              <span>{group.name}</span>
+              <input
+                aria-label={`Name for ${group.name}`}
+                className="rounded-lg border border-black/10 px-3 py-2"
+                name="name"
+                defaultValue={group.name}
+                required
+              />
+              <Button type="submit" variant="secondary">
+                Save
+              </Button>
               <button
                 type="button"
                 className="text-red-700"
@@ -379,7 +428,7 @@ export function WorkspaceAdministration({
               >
                 Delete
               </button>
-            </div>
+            </form>
           ))}
         </div>
         <form

@@ -11,21 +11,20 @@ pub struct LibreOfficeStatus {
 }
 
 fn known_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-
     #[cfg(target_os = "macos")]
-    candidates.push(PathBuf::from(
+    let candidates = vec![PathBuf::from(
         "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-    ));
+    )];
 
     #[cfg(target_os = "windows")]
-    {
-        for variable in ["PROGRAMFILES", "PROGRAMFILES(X86)"] {
-            if let Some(root) = std::env::var_os(variable) {
-                candidates.push(PathBuf::from(root).join("LibreOffice/program/soffice.exe"));
-            }
-        }
-    }
+    let candidates = ["PROGRAMFILES", "PROGRAMFILES(X86)"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(|root| PathBuf::from(root).join("LibreOffice/program/soffice.exe"))
+        .collect();
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let candidates = Vec::new();
 
     candidates
 }

@@ -129,7 +129,10 @@ struct Paths {
 }
 
 fn paths(app: &AppHandle) -> Result<Paths, String> {
-    let root = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let root = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     Ok(Paths {
         database: root.join("documi.sqlite3"),
@@ -302,7 +305,7 @@ fn read_document(
             &document.id,
             &document.current_version_id,
         )?;
-        if PathBuf::from(&key) != expected_key {
+        if Path::new(&key) != expected_key {
             return Err("invalid_storage_path".into());
         }
         let bytes =
@@ -313,8 +316,7 @@ fn read_document(
             return Err("document_content_corrupt".into());
         }
         document.content = Some(
-            serde_json::from_slice(&bytes)
-                .map_err(|_| "document_content_corrupt".to_string())?,
+            serde_json::from_slice(&bytes).map_err(|_| "document_content_corrupt".to_string())?,
         );
     }
     Ok(document)
@@ -438,7 +440,9 @@ pub fn local_document_create(
         &encoded,
     )?;
     let database_result = (|| -> Result<(), String> {
-        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
         transaction
             .execute(
                 "INSERT INTO local_documents(id,workspace_id,title,family,mime_type,editor_provider,storage_mode)
@@ -488,13 +492,12 @@ pub fn local_document_create(
 }
 
 #[tauri::command]
-pub fn local_document_get(
-    app: AppHandle,
-    document_id: String,
-) -> Result<LocalDocument, String> {
+pub fn local_document_get(app: AppHandle, document_id: String) -> Result<LocalDocument, String> {
     let (mut connection, paths) = connect(&app)?;
     let document = read_document(&connection, &paths.root, &document_id, true)?;
-    let transaction = connection.transaction().map_err(|error| error.to_string())?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
     audit(
         &transaction,
         "document.editor.opened",
@@ -506,10 +509,7 @@ pub fn local_document_get(
 }
 
 #[tauri::command]
-pub fn local_document_save(
-    app: AppHandle,
-    request: SaveRequest,
-) -> Result<LocalDocument, String> {
+pub fn local_document_save(app: AppHandle, request: SaveRequest) -> Result<LocalDocument, String> {
     let encoded = validate_content(&request.content)?;
     if request.idempotency_key.trim().is_empty() || request.idempotency_key.len() > 255 {
         return Err("idempotency_key_required".into());
@@ -540,7 +540,9 @@ pub fn local_document_save(
         &encoded,
     )?;
     let database_result = (|| -> Result<(), String> {
-        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
         let version_number = transaction
             .query_row(
                 "SELECT COALESCE(MAX(version_number),0)+1 FROM local_document_versions WHERE document_id=?1",
@@ -641,9 +643,11 @@ mod tests {
         migrate(&connection).unwrap();
         migrate(&connection).unwrap();
         let version: i64 = connection
-            .query_row("SELECT MAX(version) FROM local_schema_migrations", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT MAX(version) FROM local_schema_migrations",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(version, MIGRATION_VERSION);
         connection
@@ -694,8 +698,7 @@ mod tests {
         let workspace = Uuid::new_v4().to_string();
         let document = Uuid::new_v4().to_string();
         let version = Uuid::new_v4().to_string();
-        let (key, hash) =
-            write_object(&root, &workspace, &document, &version, b"content").unwrap();
+        let (key, hash) = write_object(&root, &workspace, &document, &version, b"content").unwrap();
         assert!(root.join(key).starts_with(&root));
         assert_eq!(hash, format!("{:x}", Sha256::digest(b"content")));
         assert!(write_object(&root, "../workspace", &document, &version, b"content").is_err());
