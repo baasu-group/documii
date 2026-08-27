@@ -43,6 +43,26 @@ func (gateway *fakeGateway) SaveNewVersion(_ context.Context, request SaveReques
 	return gateway.file, nil
 }
 
+func (gateway *fakeGateway) ManageLock(_ context.Context, request LockRequest) (LockResult, error) {
+	if request.Operation == LockGet {
+		return LockResult{CurrentLock: "lock-1"}, nil
+	}
+	return LockResult{}, nil
+}
+
+func TestWOPILockOperationRequiresEditAndReturnsCurrentLock(t *testing.T) {
+	handler, tokens, _ := testHandler(t, Access{CanRead: true, CanEdit: true})
+	token, _, _ := tokens.Issue("doc_1", "user_1", true, true)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/wopi/files/doc_1?access_token="+token, nil)
+	request.SetPathValue("id", "doc_1")
+	request.Header.Set("X-WOPI-Override", "GET_LOCK")
+	response := httptest.NewRecorder()
+	handler.FileOperation(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("X-WOPI-Lock") != "lock-1" {
+		t.Fatalf("status=%d lock=%q", response.Code, response.Header().Get("X-WOPI-Lock"))
+	}
+}
+
 func testHandler(t *testing.T, access Access) (*Handler, *TokenService, *fakeGateway) {
 	t.Helper()
 	tokens, err := NewTokenService([]byte("0123456789abcdef0123456789abcdef"), 5*time.Minute)
@@ -92,7 +112,7 @@ func TestWOPIReadOnlyTokenCanReadButCannotSave(t *testing.T) {
 	putRequest.SetPathValue("id", "doc_1")
 	putResponse := httptest.NewRecorder()
 	handler.PutFile(putResponse, putRequest)
-	if putResponse.Code != http.StatusForbidden || gateway.saveCalls != 0 {
+	if putResponse.Code != http.StatusNotFound || gateway.saveCalls != 0 {
 		t.Fatalf("PutFile() = %d, save calls = %d", putResponse.Code, gateway.saveCalls)
 	}
 }
@@ -123,8 +143,8 @@ func TestWOPIRechecksCurrentPermission(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.CheckFileInfo(response, request)
 
-	if response.Code != http.StatusForbidden {
-		t.Fatalf("CheckFileInfo() = %d, want %d", response.Code, http.StatusForbidden)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("CheckFileInfo() = %d, want %d", response.Code, http.StatusNotFound)
 	}
 }
 

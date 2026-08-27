@@ -12,6 +12,7 @@ import (
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
 	"github.com/documi/documi/services/core/internal/modules/system"
+	platformauth "github.com/documi/documi/services/core/internal/platform/auth"
 	"github.com/documi/documi/services/core/internal/platform/config"
 	"github.com/documi/documi/services/core/internal/platform/httpserver"
 	"github.com/documi/documi/services/core/internal/platform/logging"
@@ -31,6 +32,17 @@ func main() {
 	defer stop()
 
 	systemService := system.NewService(version, configValue.Environment, configValue.AirGapped)
+	var authenticator platformauth.Authenticator
+	if configValue.Auth.Mode == "oidc" {
+		value, err := platformauth.NewOIDCAuthenticator(ctx, configValue.Auth.Issuer, configValue.Auth.Audience)
+		if err != nil {
+			logger.Error("configure OIDC", "error", err)
+			os.Exit(1)
+		}
+		authenticator = value
+	} else {
+		authenticator = platformauth.DevelopmentAuthenticator{Subject: platformauth.Subject{ID: configValue.Auth.DevelopmentSubject, Issuer: "documi-development", ExternalSubject: configValue.Auth.DevelopmentSubject, Email: configValue.Auth.DevelopmentEmail, DisplayName: configValue.Auth.DevelopmentName}}
+	}
 	editorProviders := editors.DefaultProviders(editors.ProviderConfiguration{
 		AirGapped:                   configValue.AirGapped,
 		CollaboraEnabled:            configValue.Editors.CollaboraEnabled,
@@ -54,7 +66,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	tokenService, err := collabora.NewTokenService(editorTokenSecret, 5*time.Minute)
+	tokenService, err := collabora.NewTokenService(editorTokenSecret, 10*time.Hour)
 	if err != nil {
 		logger.Error("configure WOPI token service", "error", err)
 		os.Exit(1)
@@ -68,9 +80,11 @@ func main() {
 	server := &http.Server{
 		Addr: configValue.HTTPAddress,
 		Handler: httpserver.NewRouter(logger, httpserver.Routes{
-			System:  system.NewHandler(systemService),
-			Editors: editorHandler,
-			WOPI:    wopiHandler,
+			System:        system.NewHandler(systemService),
+			Editors:       editorHandler,
+			WOPI:          wopiHandler,
+			Authenticator: authenticator,
+			AuthConfig:    map[string]any{"mode": configValue.Auth.Mode, "issuer": configValue.Auth.Issuer, "audience": configValue.Auth.Audience, "clientId": configValue.Auth.ClientID},
 		}, httpserver.StaticReadiness(true)),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,

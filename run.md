@@ -2,7 +2,7 @@
 
 This guide covers the current Documi bootstrap on a local machine: installation, web-only testing, the Go API, PostgreSQL/pgvector, Temporal, Keycloak, Python workers, the Tauri desktop shell, verification, shutdown, and common errors.
 
-> **Current product status:** this repository is an architecture bootstrap. You can test the shared application shell, navigation, service health endpoints, configuration, worker startup, database migration convention, and development infrastructure. Document upload, authentication enforcement, invoice processing, approvals, and RAG are not implemented yet.
+> **Current product status:** local Tauri workspaces now persist native Documi documents and immutable versions. The server schema, OIDC validator, storage adapter, and WOPI protocol foundation exist, but the PostgreSQL Documents repository and real Collabora session gateway still fail closed. Do not use the web UI as proof of durable server saves.
 
 ## 1. Choose what you want to test
 
@@ -23,7 +23,7 @@ Recommended versions:
 
 - Node.js 22 LTS or newer supported LTS release
 - pnpm 10 or newer
-- Go 1.23 or newer
+- Go 1.25 or newer
 - Python 3.12 or newer
 - uv
 - Docker Desktop or Docker Engine with Compose v2
@@ -136,7 +136,7 @@ Open `http://localhost:5173` in a browser. You should see the Documi shell with:
 
 Click each navigation item and verify that its placeholder page loads. Stop the server with `Ctrl+C`.
 
-The bootstrap UI currently uses local placeholder content. It does not yet fetch documents or users from the Go API.
+The web UI can render the shared document workflow, but its server gateway is not persistence-backed yet. Use the Tauri path for durable local documents.
 
 ### Use a different web port
 
@@ -234,7 +234,7 @@ Username: admin
 Password: admin_dev_only
 ```
 
-These credentials are for local development only. The imported `documi` realm provides the public `documi-web` client but deliberately contains no test users. Authentication is not yet enforced by the bootstrap API/UI.
+These credentials are for local development only. The imported `documi` realm provides the public `documi-web` client but deliberately contains no test users. The API protects `/api/v1/me` and editor-session creation. Development mode supplies the configured development subject; OIDC mode validates issuer, signature, audience, expiry, and subject. Database profile persistence and document grant enforcement are not composed yet.
 
 ## 7. Apply the bootstrap database migration
 
@@ -260,7 +260,7 @@ Expected output:
 database migrations are current
 ```
 
-The migration enables `pgvector`, creates the migration bookkeeping table, and creates a minimal installation marker table. It does not create the future product domain schema.
+Migration `000001` enables `pgvector`; `000002` creates identity, organization/workspace/folder, additive grants, storage, document/version, immutable audit, idempotency, editor-session, and WOPI-lock tables. Applying the schema does not by itself enable server document routes—the PostgreSQL repository composition is still deferred and the API fails closed.
 
 You can inspect the database through the container:
 
@@ -344,6 +344,41 @@ docker compose -f deployments/compose/docker-compose.yml \
 
 The containerized API is available at `http://localhost:8080`. Stop the foreground command with `Ctrl+C`, then remove its containers with the normal shutdown command in the next section.
 
+### Optional Collabora foundation
+
+Start the API and Collabora profiles together:
+
+```sh
+docker compose -f deployments/compose/docker-compose.yml \
+  --profile application --profile collabora up --build
+```
+
+Verify the Collabora service itself:
+
+```sh
+curl -fsS http://localhost:9980/hosting/discovery
+```
+
+This checks only the optional container and its discovery XML. The API deliberately reports Collabora unavailable and refuses editor sessions until the PostgreSQL Documents/WOPI gateway is composed; a working iframe/save is not expected in this revision.
+
+### Bootstrap the first server owner
+
+After applying migrations, load `.env`, then run:
+
+```sh
+cd services/core
+go run ./cmd/admin \
+  --organization "Example Company" \
+  --workspace "Main Workspace" \
+  --issuer "http://localhost:8081/realms/documi" \
+  --subject "REPLACE_WITH_OIDC_SUBJECT" \
+  --email "owner@example.test" \
+  --display-name "Example Owner"
+cd ../..
+```
+
+This is idempotent for the issuer/subject and names and never guesses the first user. It does not enable the unfinished server document routes.
+
 ## 10. Run the desktop application
 
 First confirm the native environment:
@@ -358,7 +393,7 @@ The output should show installed versions of `rustc`, Cargo, and the platform we
 pnpm dev:desktop
 ```
 
-Tauri starts the Vite desktop frontend at port 1420 and opens the native Documi window. The desktop currently renders the same shared shell as the web app; SQLite, sqlite-vec, local document persistence, native file operations, and local AI are deferred.
+Tauri starts the Vite desktop frontend at port 1420 and opens the native Documi window. Open **Documents**, create a Documi document, edit it, and choose the explicit save action. Close and restart the application: the document and current version should still appear. Metadata lives in `documi.sqlite3`; content lives under `documents/<workspace-id>/<document-id>/<version-id>/document.documi.json` inside the platform application-data directory. React cannot choose or receive those paths.
 
 To verify only the desktop frontend without Rust:
 
@@ -366,7 +401,7 @@ To verify only the desktop frontend without Rust:
 pnpm --filter @documi/desktop build
 ```
 
-This validates TypeScript and builds the desktop web assets, but it does not compile the Rust native application.
+This validates TypeScript and builds the desktop web assets, but it does not compile the Rust native application or test SQLite. Run `cargo test`, `cargo fmt --check`, and `cargo clippy -- -D warnings` from `apps/desktop/src-tauri` before accepting native changes.
 
 ## 11. Run tests and quality checks
 
@@ -406,6 +441,24 @@ Expected test coverage at bootstrap includes:
 - Temporal development activity wiring.
 - Python health and worker startup.
 - Disabled AI provider failing closed.
+
+### Verification recorded for this implementation
+
+On 2026-08-27 the following completed successfully in this checkout:
+
+```sh
+pnpm check
+cd services/core && go test ./...
+```
+
+The API was also started on `127.0.0.1:18080`; `/health`, `/ready`, `/api/v1/auth/config`, `/api/v1/me`, and `/api/v1/document-editors` returned successful JSON responses. It then stopped gracefully.
+
+Two environment limitations prevented complete runtime verification on this machine:
+
+- `cargo`/`rustfmt` were not installed, so the Tauri Rust module, bundled SQLite migration, and restart-persistence flow were not compiled or executed here.
+- `docker` was not installed, so migration `000002`, Keycloak/OIDC, PostgreSQL authorization, Collabora discovery against a real container, and WOPI integration were not executed here.
+
+Treat those as required checks on a machine with the corresponding prerequisites; do not infer success from the frontend-only desktop build.
 
 ## 12. Stop and clean up
 
@@ -584,11 +637,19 @@ DOCUMI_AI_PROVIDER=disabled
 ```
 Only the provider abstraction and fail-closed disabled implementation exist. Ollama, llama.cpp, vLLM, OpenAI-compatible, and custom HTTP adapters are future work. No model is downloaded automatically.
 
-### The UI does not upload documents or sign in
+### A document saves in desktop but not in the web application
 
-That behavior has not been implemented yet. The bootstrap UI is intended to validate shared web/desktop architecture and navigation. The next milestone is authenticated workspace context plus immutable document upload/storage/version/audit.
+This is the expected authority split in this revision. Tauri uses local SQLite and controlled files; the browser needs the unfinished PostgreSQL Documents API. Local and server histories do not synchronize.
 
-##  14. Recommended first local test checklist
+### `document_version_conflict` when saving
+
+The open document is based on an older immutable version. Reopen it to load the current version, reapply the intended change, and save again. Documi does not overwrite either version automatically.
+
+### Collabora is running but the editor is unavailable
+
+The container, discovery parser, WOPI protocol routes, and locks are foundation components. The production PostgreSQL document gateway/session issuer remains fail-closed. Do not disable that guard or construct WOPI URLs in React; finish the permission/version repository integration first.
+
+## 14. Recommended first local test checklist
 
 - [ ] `pnpm bootstrap` completes.
 - [ ] `pnpm dev` opens the web shell at `http://localhost:5173`.
@@ -601,4 +662,3 @@ That behavior has not been implemented yet. The bootstrap UI is intended to vali
 - [ ] Both Python workers start and stop cleanly.
 - [ ] `pnpm check` passes with no unexpected skipped toolchains.
 - [ ] Optional: Tauri opens a native window after its prerequisites are installed.
-

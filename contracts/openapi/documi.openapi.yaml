@@ -42,6 +42,20 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SystemInfo" }
+  /api/v1/auth/config:
+    get:
+      operationId: getPublicAuthConfig
+      tags: [Authentication]
+      responses:
+        "200": { description: Non-secret client authentication configuration. }
+  /api/v1/me:
+    get:
+      operationId: getCurrentSubject
+      tags: [Authentication]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200": { description: The validated current subject. }
+        "401": { description: A valid bearer token is required. }
   /api/v1/document-editors:
     get:
       operationId: listDocumentEditors
@@ -112,7 +126,19 @@ paths:
       responses:
         "200": { description: Permission-filtered WOPI file information. }
         "401": { description: Missing, invalid, expired, or mismatched editor token. }
-        "403": { description: Current document permission denies access. }
+        "404": { description: Document is missing or current permission denies access. }
+    post:
+      operationId: wopiFileOperation
+      tags: [WOPI]
+      description: Dispatches WOPI lock operations from X-WOPI headers.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: access_token, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Lock operation completed. }
+        "401": { description: Invalid editor token. }
+        "404": { description: Document is missing or current permission denies access. }
+        "409": { description: Lock mismatch; X-WOPI-Lock contains the current lock. }
   /api/v1/wopi/files/{id}/contents:
     get:
       operationId: wopiGetFile
@@ -123,7 +149,7 @@ paths:
       responses:
         "200": { description: Authorized document version bytes. }
         "401": { description: Invalid editor token. }
-        "403": { description: Current document permission denies access. }
+        "404": { description: Document is missing or current permission denies access. }
     post:
       operationId: wopiPutFile
       tags: [WOPI]
@@ -139,9 +165,14 @@ paths:
       responses:
         "200": { description: A new document version was created. }
         "401": { description: Invalid editor token. }
-        "403": { description: Current edit permission is absent. }
+        "404": { description: Document is missing or current edit permission is absent. }
         "409": { description: Document version conflict. }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
     Status:
       type: object
@@ -189,4 +220,7 @@ components:
         url: { type: string, format: uri }
         accessToken: { type: string, writeOnly: true }
         expiresAt: { type: string, format: date-time }
+        accessTokenTtl:
+          type: integer
+          description: Editor token lifetime in milliseconds.
         readOnly: { type: boolean }

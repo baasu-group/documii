@@ -36,7 +36,24 @@ type SaveRequest struct {
 	ExpectedVersion string
 	Content         io.Reader
 	ContentLength   int64
+	LockValue       string
 }
+
+type LockOperation string
+
+const (
+	LockAcquire LockOperation = "LOCK"
+	LockRefresh LockOperation = "REFRESH_LOCK"
+	LockGet     LockOperation = "GET_LOCK"
+	LockRelease LockOperation = "UNLOCK"
+	LockRelock  LockOperation = "UNLOCK_AND_RELOCK"
+)
+
+type LockRequest struct {
+	FileID, ActorID, LockValue, OldLockValue string
+	Operation                                LockOperation
+}
+type LockResult struct{ CurrentLock string }
 
 // DocumentGateway is implemented by the Documents application service. Its
 // methods must enforce permissions and append audit events; SaveNewVersion must
@@ -46,6 +63,7 @@ type DocumentGateway interface {
 	Info(context.Context, string, string) (File, error)
 	OpenContent(context.Context, string, string) (io.ReadCloser, File, error)
 	SaveNewVersion(context.Context, SaveRequest) (File, error)
+	ManageLock(context.Context, LockRequest) (LockResult, error)
 }
 
 type Handler struct {
@@ -85,7 +103,7 @@ func (handler *Handler) CheckFileInfo(writer http.ResponseWriter, request *http.
 		"UserCanWrite":            access.CanEdit && claims.CanEdit,
 		"Version":                 file.VersionID,
 		"SupportsUpdate":          true,
-		"SupportsLocks":           false,
+		"SupportsLocks":           true,
 		"UserCanNotWriteRelative": true,
 	})
 }
@@ -132,6 +150,7 @@ func (handler *Handler) PutFile(writer http.ResponseWriter, request *http.Reques
 		ExpectedVersion: expectedVersion,
 		Content:         request.Body,
 		ContentLength:   request.ContentLength,
+		LockValue:       request.Header.Get("X-WOPI-Lock"),
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "request body too large") {
@@ -142,6 +161,45 @@ func (handler *Handler) PutFile(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	writeWOPIJSON(writer, http.StatusOK, map[string]string{"LastModifiedTime": file.VersionID})
+}
+
+func (handler *Handler) FileOperation(writer http.ResponseWriter, request *http.Request) {
+	claims, _, ok := handler.authorize(writer, request, true)
+	if !ok {
+		return
+	}
+	override := request.Header.Get("X-WOPI-Override")
+	operation := LockOperation(override)
+	if operation == LockAcquire && request.Header.Get("X-WOPI-OldLock") != "" {
+		operation = LockRelock
+	}
+	if operation != LockAcquire && operation != LockRefresh && operation != LockGet && operation != LockRelease && operation != LockRelock {
+		writeWOPIJSON(writer, http.StatusNotImplemented, map[string]string{"error": "wopi_operation_not_supported"})
+		return
+	}
+	lock := request.Header.Get("X-WOPI-Lock")
+	if operation != LockGet && lock == "" {
+		writeWOPIJSON(writer, http.StatusBadRequest, map[string]string{"error": "wopi_lock_required"})
+		return
+	}
+	if len(lock) > 1024 || len(request.Header.Get("X-WOPI-OldLock")) > 1024 {
+		writeWOPIJSON(writer, http.StatusBadRequest, map[string]string{"error": "wopi_lock_too_long"})
+		return
+	}
+	result, err := handler.documents.ManageLock(request.Context(), LockRequest{FileID: claims.FileID, ActorID: claims.ActorID, Operation: operation, LockValue: lock, OldLockValue: request.Header.Get("X-WOPI-OldLock")})
+	if errors.Is(err, ErrConflict) {
+		writer.Header().Set("X-WOPI-Lock", result.CurrentLock)
+		writeWOPIJSON(writer, http.StatusConflict, map[string]string{"error": "wopi_lock_mismatch"})
+		return
+	}
+	if err != nil {
+		handler.writeGatewayError(writer, err)
+		return
+	}
+	if operation == LockGet {
+		writer.Header().Set("X-WOPI-Lock", result.CurrentLock)
+	}
+	writer.WriteHeader(http.StatusOK)
 }
 
 func (handler *Handler) authorize(writer http.ResponseWriter, request *http.Request, edit bool) (Claims, Access, bool) {
@@ -157,7 +215,9 @@ func (handler *Handler) authorize(writer http.ResponseWriter, request *http.Requ
 		return Claims{}, Access{}, false
 	}
 	if !access.CanRead || (edit && (!access.CanEdit || !claims.CanEdit)) {
-		writeWOPIJSON(writer, http.StatusForbidden, map[string]string{"error": "document_permission_denied"})
+		// Do not reveal whether a document exists to a caller whose current
+		// permissions no longer allow the requested WOPI operation.
+		writeWOPIJSON(writer, http.StatusNotFound, map[string]string{"error": "document_not_found"})
 		return Claims{}, Access{}, false
 	}
 	return claims, access, true
@@ -166,7 +226,7 @@ func (handler *Handler) authorize(writer http.ResponseWriter, request *http.Requ
 func (handler *Handler) writeGatewayError(writer http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrForbidden):
-		writeWOPIJSON(writer, http.StatusForbidden, map[string]string{"error": "document_permission_denied"})
+		writeWOPIJSON(writer, http.StatusNotFound, map[string]string{"error": "document_not_found"})
 	case errors.Is(err, ErrNotFound):
 		writeWOPIJSON(writer, http.StatusNotFound, map[string]string{"error": "document_not_found"})
 	case errors.Is(err, ErrConflict):

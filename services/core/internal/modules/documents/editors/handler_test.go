@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	platformauth "github.com/documi/documi/services/core/internal/platform/auth"
 )
 
 func TestAvailabilityHandlerDoesNotExposeProviderConfiguration(t *testing.T) {
@@ -32,6 +34,7 @@ func TestSessionHandlerFailsClosedWithoutDocumentsService(t *testing.T) {
 	registry, _ := NewRegistry(NewNativeProvider())
 	handler := NewHandler(NewService(registry, NewResolver(registry, DefaultPolicy())), UnavailableSessionService{})
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/documents/doc_1/editor-session", strings.NewReader(`{"providerId":"collabora","requestedEdit":true}`))
+	request = request.WithContext(platformauth.WithSubject(request.Context(), platformauth.Subject{ID: "user_1"}))
 	request.SetPathValue("id", "doc_1")
 	response := httptest.NewRecorder()
 	handler.CreateSession(response, request)

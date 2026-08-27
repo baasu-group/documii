@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+
+	platformauth "github.com/documi/documi/services/core/internal/platform/auth"
 )
 
 type Handler struct {
@@ -48,9 +50,13 @@ func (handler *Handler) CreateSession(writer http.ResponseWriter, request *http.
 		return
 	}
 
-	// Actor identity deliberately remains empty until OIDC request context exists.
-	// The fail-closed session service will not issue a provider token without it.
+	subject, ok := platformauth.FromContext(request.Context())
+	if !ok {
+		writeEditorJSON(writer, http.StatusUnauthorized, map[string]string{"error": "authentication_required"})
+		return
+	}
 	session, err := handler.sessionService.CreateSession(request.Context(), SessionRequest{
+		ActorID:       subject.ID,
 		DocumentID:    request.PathValue("id"),
 		ProviderID:    payload.ProviderID,
 		RequestedEdit: payload.RequestedEdit,

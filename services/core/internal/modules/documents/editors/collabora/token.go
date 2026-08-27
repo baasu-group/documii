@@ -34,8 +34,8 @@ func NewTokenService(secret []byte, ttl time.Duration) (*TokenService, error) {
 	if len(secret) < 32 {
 		return nil, fmt.Errorf("editor token secret must contain at least 32 bytes")
 	}
-	if ttl <= 0 || ttl > 10*time.Minute {
-		return nil, fmt.Errorf("editor token TTL must be between zero and ten minutes")
+	if ttl <= 0 || ttl > 10*time.Hour {
+		return nil, fmt.Errorf("editor token TTL must be between zero and ten hours")
 	}
 	return &TokenService{secret: append([]byte(nil), secret...), ttl: ttl, now: time.Now}, nil
 }

@@ -27,7 +27,7 @@ An external document is a Documi identity and permission/audit reference whose l
 
 `packages/editor` owns the Tiptap implementation and a versioned JSON envelope. It supports the lightweight Documi format in browser and desktop, including the existing Tiptap extension model for headings, paragraphs, lists, task lists, tables, images, links, code, and future Documi extensions for mentions, comments, templates, variables, and AI actions. It is not a DOCX rendering engine.
 
-The editor component works now as a local preview. Persistence intentionally remains unavailable until the Documents aggregate, permission service, storage implementation, and version repository exist; the UI labels this clearly rather than pretending a save is durable.
+In a Tauri local workspace the editor now creates real records, reloads them after restart, and performs explicit immutable saves through fixed commands. SQLite holds metadata, versions, idempotency, and append-only audit events; `documi-json-v1` bytes are limited to 5 MiB and stored in application-controlled files. The browser/server gateway remains unavailable until the PostgreSQL Documents repository is composed.
 
 ## Collabora Online and WOPI
 
@@ -39,9 +39,9 @@ authorized user -> Documi editor session -> short-lived token
   -> StorageProvider / new document version / audit
 ```
 
-The WOPI foundation implements `CheckFileInfo`, `GetFile`, and `PutFile` routes beneath `/api/v1/wopi/files/{id}`. Tokens are short-lived HMAC-authenticated claims bound to a document and actor. Every WOPI call re-checks current document access. A read-only token cannot save. Filenames are validated, paths are never returned, request bodies are limited, and saves call `SaveNewVersion` with an expected base version.
+The WOPI foundation implements `CheckFileInfo`, `GetFile`, `PutFile`, `LOCK`, `REFRESH_LOCK`, `GET_LOCK`, `UNLOCK`, and atomic unlock/relock dispatch beneath `/api/v1/wopi/files/{id}`. HMAC claims are bound to a document, actor, mode, and optional base version, with a maximum ten-hour lifetime. Every call re-checks current access; denied documents are non-enumerating 404 responses. Read-only sessions cannot lock or save. Filenames, locks, and body sizes are bounded, paths are never returned, and saves call `SaveNewVersion` with an expected base version and lock.
 
-The running composition currently installs a fail-closed gateway because the persistence-backed Documents service does not exist. It therefore returns no editor session and no content even when Collabora is configured. WOPI locks, discovery/action URL resolution, session issuance, real version persistence, and edit audit delivery remain required before Collabora is operational.
+Discovery parsing resolves view/edit action URLs from `${COLLABORA_URL}/hosting/discovery` with a five-second timeout, a bounded response, same-origin redirects, and a five-minute cache. The running composition still installs a fail-closed gateway, so persisted locks, session issuance, real version persistence, and edit audit delivery remain required before Collabora is operational.
 
 ## ONLYOFFICE
 
@@ -82,8 +82,8 @@ Secrets require at least 32 characters when their provider is enabled. URLs are 
 
 | Provider | Status | Current behavior |
 | --- | --- | --- |
-| Native | Partial | Tiptap editor and native envelope work; version persistence is not present |
-| Collabora | Foundation only | provider, optional Compose service, token/WOPI protocol boundary and security tests; gateway/session fail closed |
+| Native | Partial | durable local Tauri documents work by design; PostgreSQL/server API composition remains |
+| Collabora | Foundation only | discovery, tokens, WOPI read/save/locks, optional Compose service; PostgreSQL gateway/session still fail closed |
 | LibreOffice Desktop | Foundation only | desktop detection command and missing-state UI; open/save-back deferred |
 | LibreOffice Headless | Foundation only | converter interface only |
 | Google Workspace | Foundation only | normalized disabled/air-gap availability only |

@@ -1,6 +1,6 @@
 # Documi architecture
 
-Status: implemented bootstrap source of truth. Last updated: 2026-08-26.
+Status: implemented bootstrap plus local document persistence and server persistence foundations. Last updated: 2026-08-27.
 
 ## 1. Product vision
 
@@ -77,7 +77,7 @@ The Go executables share one module. The Python workers share one package and im
 
 ## 7. Domain model
 
-Long-term entities are grouped as follows; only bootstrap metadata is currently migrated:
+Long-term entities are grouped as follows. Migration `000002` now establishes the document, identity, hierarchy, authorization, version, audit, idempotency, editor-session, and WOPI-lock tables; application repositories are introduced in vertical slices:
 
 ```text
 organizations, users, groups, memberships
@@ -118,7 +118,7 @@ Provider protocols accept product-level requests and return product-level respon
 
 PostgreSQL is the canonical database in server workspaces. `pgvector` stores embeddings in the same authorization and transaction boundary as document metadata. Versioned, forward SQL lives in `database/migrations`; the migration executable records applied versions. Tests use isolated databases when persistence behavior is introduced.
 
-SQLite and sqlite-vec are later local-workspace implementations, not replicas of a live server workspace. Application services must not assume PostgreSQL-specific behavior outside repository implementations.
+SQLite is the implemented local-document metadata store and is not a replica of a live server workspace. Native content stays in application-controlled files. PostgreSQL migration `000002` is the server schema; its HTTP repositories are not yet composed into the API. Application services must not assume PostgreSQL-specific behavior outside repository implementations.
 
 ## 12. Document and version architecture
 
@@ -211,7 +211,7 @@ Documi Desktop
 └── Ollama / llama.cpp adapter (later)
 ```
 
-A purely local workspace needs no server. Rust provides native integration rather than duplicating business behavior. Local Workspace is an explicit workspace kind and is not automatically synchronized with server state.
+A purely local workspace needs no server. Fixed Tauri commands initialize one device-owner workspace, persist document/version/audit metadata in bundled SQLite, and store immutable native content beneath the Tauri application-data directory. React uses a shared `DocumentGateway` and never supplies a path or storage key. Local Workspace is an explicit workspace kind and is not automatically synchronized with server state.
 
 Desktop-only Office integration stays behind the shared app-shell platform interface. The Tauri `check_libreoffice` command performs fixed detection only. Future open/save-back uses controlled working copies and the Documents service; React cannot launch arbitrary commands or see internal server storage paths.
 
@@ -248,7 +248,7 @@ Docker Compose is the development and initial single-node server profile. Images
 
 ## 29. Explicitly deferred features
 
-Full domain schema and invoice flow; production OIDC enforcement; SQLite/sqlite-vec local persistence; native document persistence; production Collabora/ONLYOFFICE callbacks and sessions; LibreOffice open/save-back and conversion runtime; Google OAuth/import/export; Docling/Tesseract/model dependencies; reranking; generated SDKs; S3; outbound connectors/webhooks; secret encryption; advanced SSO; realtime protocols; multi-node scaling; Kubernetes implementation; local/server synchronization; marketplace and mobile applications.
+Server document repositories/HTTP composition and administration APIs; production OIDC user-profile persistence; production Collabora/ONLYOFFICE callbacks and sessions; LibreOffice open/save-back and conversion runtime; Google OAuth/import/export; SecretStore; Docling/Tesseract/model dependencies; reranking; generated SDKs; S3; outbound connectors/webhooks; advanced SSO; realtime protocols; multi-node scaling; Kubernetes implementation; local/server synchronization; marketplace and mobile applications.
 
 ## 30. ADR index
 
@@ -263,7 +263,10 @@ Full domain schema and invoice flow; production OIDC enforcement; SQLite/sqlite-
 9. [Modular monolith](docs/adr/0009-modular-monolith.md)
 10. [Polyglot monorepo](docs/adr/0010-polyglot-monorepo.md)
 11. [Document editor provider architecture](docs/adr/0011-document-editor-provider-architecture.md)
+12. [Local and server document persistence](docs/adr/0012-local-and-server-document-persistence.md)
 
 ## 31. Current implementation status
 
-Implemented in the bootstrap: a shared web/desktop React shell; Tiptap native editor boundary; capability-based editor registry/resolver and normalized availability API; fail-closed editor-session API; Collabora token/WOPI foundation; ONLYOFFICE signing foundation; Tauri LibreOffice detection; conventional Tauri v2 native entry point; Go health/readiness/system API with graceful shutdown; Temporal workflow/activity registration; SQL migration utility and pgvector bootstrap migration; Python document/AI worker entry points and disabled-provider contract; authoritative initial contracts; PostgreSQL/Temporal/Keycloak plus optional Collabora Compose dependencies; root quality commands; CI; and engineering/security documentation. Unit tests cover editor resolution and availability, WOPI access/read-only/version boundaries, token signing, native format, navigation, API handlers/readiness, configuration, Temporal activity wiring, Python health/workers, and fail-closed AI behavior. No production identity enforcement, persistence-backed Documents aggregate, durable native save, live Office session, Google connector, document pipeline, or invoice workflow is claimed.
+Implemented: a shared web/desktop React shell and document gateway; durable local native creation/load/explicit-save/version history through bundled SQLite and controlled files; immutable local audit triggers; Tiptap native editor integration; the PostgreSQL `000002` persistence/identity/hierarchy/grants/audit/editor-session/WOPI-lock schema; safe mounted-filesystem storage; role capability bundles; development/OIDC authentication validation; idempotent owner bootstrap CLI; capability-based editor resolution; Collabora discovery parsing, ten-hour-bounded tokens, WOPI read/content/save/lock protocol boundaries; ONLYOFFICE signing foundation; and Tauri LibreOffice detection.
+
+The server Documents repository/HTTP composition, persisted OIDC profile mapping, hierarchical administration services, and PostgreSQL-backed Collabora gateway/session issuance are still fail-closed. Consequently Collabora is not claimed operational, and the web gateway cannot yet persist server documents. Rust checks also require a Rust toolchain; TypeScript-only desktop builds do not validate the native SQLite code.

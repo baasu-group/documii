@@ -16,7 +16,7 @@ Persist stable provider IDs (`native`, `collabora`, `onlyoffice`, `libreoffice-d
 
 Managed documents have Documi-controlled content. External documents are explicit references to content owned by another system; their credentials live in the SecretStore, not document metadata. Air-gapped mode rejects public-internet providers server-side.
 
-Collabora reaches documents only through authenticated WOPI endpoints. ONLYOFFICE uses signed server-generated configuration and validated callbacks. Desktop LibreOffice uses a controlled working copy and explicit save-back. Headless LibreOffice runs in an isolated worker, not the API process. Google integration uses the existing connector/secrets boundary.
+Collabora reaches documents only through authenticated WOPI endpoints. Editing requires a persisted, expiring document lock and every save compares the lock's base version before creating a new immutable version. Session action URLs come from bounded, same-origin Collabora discovery; the browser never constructs privileged WOPI URLs. ONLYOFFICE uses signed server-generated configuration and validated callbacks. Desktop LibreOffice uses a controlled working copy and explicit save-back. Headless LibreOffice runs in an isolated worker, not the API process. Google integration uses the existing connector/secrets boundary.
 
 ## Consequences
 

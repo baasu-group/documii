@@ -60,6 +60,9 @@ export function OfficeEditorContainer({
     <div className="min-h-[70vh] overflow-hidden rounded-xl border border-black/10 bg-white">
       <form ref={form} action={session.url} method="post" target="documi-office-frame">
         <input type="hidden" name="access_token" value={session.accessToken} />
+        {session.accessTokenTtl && (
+          <input type="hidden" name="access_token_ttl" value={session.accessTokenTtl} />
+        )}
       </form>
       <iframe
         className="h-[70vh] w-full border-0"

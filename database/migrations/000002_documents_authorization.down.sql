@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS wopi_locks, editor_sessions, idempotency_keys, audit_events, document_editor_policies, document_versions CASCADE;
+ALTER TABLE IF EXISTS documents DROP CONSTRAINT IF EXISTS documents_current_version_fk;
+DROP TABLE IF EXISTS documents, storage_objects, authorization_grants, group_members, groups, folders, workspaces, organizations, oidc_identities, users CASCADE;
+DROP FUNCTION IF EXISTS reject_audit_mutation();
+DROP FUNCTION IF EXISTS validate_document_folder();
+DROP FUNCTION IF EXISTS validate_folder_hierarchy();
+DROP TYPE IF EXISTS principal_type, authorization_scope, authorization_role;

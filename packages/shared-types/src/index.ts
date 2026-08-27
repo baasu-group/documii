@@ -56,4 +56,87 @@ export interface EditorSession {
   accessToken?: string;
   expiresAt?: string;
   readOnly: boolean;
+  accessTokenTtl?: number;
+}
+
+export type WorkspaceMode = "local" | "server";
+
+export interface Workspace {
+  id: string;
+  organizationId?: string;
+  name: string;
+  mode: WorkspaceMode;
+}
+
+export interface DocumentVersion {
+  id: string;
+  documentId: string;
+  parentVersionId?: string;
+  versionNumber: number;
+  sha256: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface DocumentRecord {
+  id: string;
+  workspaceId: string;
+  folderId?: string;
+  title: string;
+  family: DocumentFamily;
+  mimeType: string;
+  editorProvider: EditorProviderId;
+  storageMode: "managed" | "external";
+  currentVersionId: string;
+  createdAt: string;
+  updatedAt: string;
+  content?: unknown;
+}
+
+export interface CreateNativeDocumentRequest {
+  workspaceId: string;
+  title: string;
+  content: unknown;
+  idempotencyKey: string;
+}
+
+export interface SaveNativeDocumentRequest {
+  documentId: string;
+  baseVersionId: string;
+  content: unknown;
+  idempotencyKey: string;
+}
+
+export type AuthorizationRole =
+  "owner" | "admin" | "manager" | "editor" | "contributor" | "viewer" | "guest";
+
+export type AuthorizationCapability =
+  | "read"
+  | "create"
+  | "edit"
+  | "download"
+  | "delete"
+  | "manage_permissions"
+  | "manage_members"
+  | "transfer_ownership";
+
+export interface AuthorizationGrant {
+  id: string;
+  organizationId: string;
+  principalType: "user" | "group";
+  principalId: string;
+  scopeType: "organization" | "workspace" | "folder" | "document";
+  scopeId: string;
+  role: AuthorizationRole;
+}
+
+export interface AuditEvent {
+  id: string;
+  type: string;
+  organizationId?: string;
+  workspaceId: string;
+  actorId: string;
+  resourceId: string;
+  timestamp: string;
+  data: Record<string, unknown>;
 }

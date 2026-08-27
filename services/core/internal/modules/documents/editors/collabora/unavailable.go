@@ -24,3 +24,6 @@ func (UnavailableGateway) OpenContent(context.Context, string, string) (io.ReadC
 func (UnavailableGateway) SaveNewVersion(context.Context, SaveRequest) (File, error) {
 	return File{}, ErrForbidden
 }
+func (UnavailableGateway) ManageLock(context.Context, LockRequest) (LockResult, error) {
+	return LockResult{}, ErrForbidden
+}

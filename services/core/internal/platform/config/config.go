@@ -20,7 +20,11 @@ type Config struct {
 	AirGapped         bool
 	ShutdownTimeout   time.Duration
 	Editors           EditorConfig
+	Auth              AuthConfig
+	PublicURL         string
 }
+
+type AuthConfig struct{ Mode, Issuer, Audience, ClientID, DevelopmentSubject, DevelopmentEmail, DevelopmentName string }
 
 type EditorConfig struct {
 	TokenSecret         string
@@ -57,6 +61,8 @@ func Load() (Config, error) {
 		TemporalNamespace: envOrDefault("DOCUMI_TEMPORAL_NAMESPACE", "default"),
 		AirGapped:         airGapped,
 		ShutdownTimeout:   10 * time.Second,
+		PublicURL:         envOrDefault("DOCUMI_PUBLIC_URL", "http://localhost:8080"),
+		Auth:              AuthConfig{Mode: envOrDefault("DOCUMI_AUTH_MODE", "development"), Issuer: os.Getenv("DOCUMI_OIDC_ISSUER"), Audience: envOrDefault("DOCUMI_OIDC_AUDIENCE", "documi-api"), ClientID: envOrDefault("DOCUMI_OIDC_CLIENT_ID", "documi-web"), DevelopmentSubject: envOrDefault("DOCUMI_DEV_SUBJECT", "local-admin"), DevelopmentEmail: envOrDefault("DOCUMI_DEV_EMAIL", "admin@documi.local"), DevelopmentName: envOrDefault("DOCUMI_DEV_NAME", "Local administrator")},
 		Editors: EditorConfig{
 			TokenSecret:         os.Getenv("DOCUMI_EDITOR_TOKEN_SECRET"),
 			CollaboraEnabled:    collaboraEnabled,
@@ -74,8 +80,25 @@ func Load() (Config, error) {
 	if strings.TrimSpace(config.TemporalAddress) == "" {
 		return Config{}, fmt.Errorf("DOCUMI_TEMPORAL_ADDRESS must not be empty")
 	}
+	if err := requireHTTPURL("DOCUMI_PUBLIC_URL", config.PublicURL); err != nil {
+		return Config{}, err
+	}
 	if err := config.Editors.Validate(); err != nil {
 		return Config{}, err
+	}
+	if config.Auth.Mode != "oidc" && config.Auth.Mode != "development" {
+		return Config{}, fmt.Errorf("DOCUMI_AUTH_MODE must be oidc or development")
+	}
+	if config.Auth.Mode == "development" && config.Environment != "development" && config.Environment != "test" {
+		return Config{}, fmt.Errorf("development authentication is forbidden outside development/test")
+	}
+	if config.Auth.Mode == "oidc" {
+		if err := requireHTTPURL("DOCUMI_OIDC_ISSUER", config.Auth.Issuer); err != nil {
+			return Config{}, err
+		}
+		if config.Auth.Audience == "" {
+			return Config{}, fmt.Errorf("DOCUMI_OIDC_AUDIENCE is required")
+		}
 	}
 	return config, nil
 }

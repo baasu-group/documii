@@ -242,6 +242,7 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
               documentId={documentId}
               providerId={providerId}
               onOpenNative={openNativeDocument}
+              gateway={editorPlatform.documents}
             />
           ) : active === "settings" ? (
             <EditorSettings platform={editorPlatform} />

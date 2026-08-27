@@ -20,7 +20,7 @@ docs/             ADRs and engineering documentation
 ## Prerequisites
 
 - Node.js 22+ and pnpm 10+
-- Go 1.23+
+- Go 1.25+
 - Python 3.12+ and `uv`
 - Rust 1.77.2+ plus the [Tauri v2 system prerequisites](https://v2.tauri.app/start/prerequisites/) for native desktop builds
 - Docker with Compose v2 for server dependencies

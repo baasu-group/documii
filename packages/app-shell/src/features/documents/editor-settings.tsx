@@ -15,7 +15,7 @@ const labels: Record<EditorProviderStatus["id"], string> = {
 };
 
 export function EditorSettings({ platform }: { platform: EditorPlatform }) {
-  const { providers, error } = useEditorProviders();
+  const { providers, error } = useEditorProviders(platform.kind === "desktop");
   const [libreOffice, setLibreOffice] = useState<LibreOfficeStatus>();
   useEffect(() => {
     if (platform.kind === "desktop")
@@ -29,7 +29,9 @@ export function EditorSettings({ platform }: { platform: EditorPlatform }) {
     <section>
       <h1 className="m-0 text-4xl font-semibold">Document Editors</h1>
       <p className="text-black/55">
-        Availability comes from the server. Secret values are never returned here.
+        {platform.kind === "desktop"
+          ? "Local availability comes from fixed desktop capability checks."
+          : "Availability comes from the server. Secret values are never returned here."}
       </p>
       {error && (
         <p role="alert" className="text-red-800">
