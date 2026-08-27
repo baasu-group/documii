@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/documi/documi/services/core/internal/modules/documents/editors"
+	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
 	"github.com/documi/documi/services/core/internal/modules/system"
 )
 
@@ -17,7 +19,13 @@ type StaticReadiness bool
 
 func (readiness StaticReadiness) Ready() bool { return bool(readiness) }
 
-func NewRouter(logger *slog.Logger, systemHandler *system.Handler, readiness Readiness) http.Handler {
+type Routes struct {
+	System  *system.Handler
+	Editors *editors.Handler
+	WOPI    *collabora.Handler
+}
+
+func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ok"})
@@ -29,7 +37,17 @@ func NewRouter(logger *slog.Logger, systemHandler *system.Handler, readiness Rea
 		}
 		writeJSON(writer, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	mux.HandleFunc("GET /api/v1/system/info", systemHandler.SystemInfo)
+	mux.HandleFunc("GET /api/v1/system/info", routes.System.SystemInfo)
+	if routes.Editors != nil {
+		mux.HandleFunc("GET /api/v1/document-editors", routes.Editors.Providers)
+		mux.HandleFunc("GET /api/v1/document-editors/{provider}/status", routes.Editors.ProviderStatus)
+		mux.HandleFunc("POST /api/v1/documents/{id}/editor-session", routes.Editors.CreateSession)
+	}
+	if routes.WOPI != nil {
+		mux.HandleFunc("GET /api/v1/wopi/files/{id}", routes.WOPI.CheckFileInfo)
+		mux.HandleFunc("GET /api/v1/wopi/files/{id}/contents", routes.WOPI.GetFile)
+		mux.HandleFunc("POST /api/v1/wopi/files/{id}/contents", routes.WOPI.PutFile)
+	}
 	return requestLogger(logger, mux)
 }
 

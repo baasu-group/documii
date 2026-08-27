@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -18,12 +19,32 @@ type Config struct {
 	TemporalNamespace string
 	AirGapped         bool
 	ShutdownTimeout   time.Duration
+	Editors           EditorConfig
+}
+
+type EditorConfig struct {
+	TokenSecret         string
+	CollaboraEnabled    bool
+	CollaboraURL        string
+	CollaboraPublicURL  string
+	OnlyOfficeEnabled   bool
+	OnlyOfficeURL       string
+	OnlyOfficeJWTSecret string
 }
 
 func Load() (Config, error) {
 	airGapped, err := strconv.ParseBool(envOrDefault("AIR_GAPPED", "false"))
 	if err != nil {
 		return Config{}, fmt.Errorf("parse AIR_GAPPED: %w", err)
+	}
+
+	collaboraEnabled, err := booleanEnvironment("COLLABORA_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	onlyOfficeEnabled, err := booleanEnvironment("ONLYOFFICE_ENABLED", false)
+	if err != nil {
+		return Config{}, err
 	}
 
 	config := Config{
@@ -36,6 +57,15 @@ func Load() (Config, error) {
 		TemporalNamespace: envOrDefault("DOCUMI_TEMPORAL_NAMESPACE", "default"),
 		AirGapped:         airGapped,
 		ShutdownTimeout:   10 * time.Second,
+		Editors: EditorConfig{
+			TokenSecret:         os.Getenv("DOCUMI_EDITOR_TOKEN_SECRET"),
+			CollaboraEnabled:    collaboraEnabled,
+			CollaboraURL:        os.Getenv("COLLABORA_URL"),
+			CollaboraPublicURL:  os.Getenv("COLLABORA_PUBLIC_URL"),
+			OnlyOfficeEnabled:   onlyOfficeEnabled,
+			OnlyOfficeURL:       os.Getenv("ONLYOFFICE_URL"),
+			OnlyOfficeJWTSecret: os.Getenv("ONLYOFFICE_JWT_SECRET"),
+		},
 	}
 
 	if strings.TrimSpace(config.HTTPAddress) == "" {
@@ -44,7 +74,50 @@ func Load() (Config, error) {
 	if strings.TrimSpace(config.TemporalAddress) == "" {
 		return Config{}, fmt.Errorf("DOCUMI_TEMPORAL_ADDRESS must not be empty")
 	}
+	if err := config.Editors.Validate(); err != nil {
+		return Config{}, err
+	}
 	return config, nil
+}
+
+func (config EditorConfig) Validate() error {
+	if config.CollaboraEnabled {
+		if err := requireHTTPURL("COLLABORA_URL", config.CollaboraURL); err != nil {
+			return err
+		}
+		if err := requireHTTPURL("COLLABORA_PUBLIC_URL", config.CollaboraPublicURL); err != nil {
+			return err
+		}
+		if len(config.TokenSecret) < 32 {
+			return fmt.Errorf("DOCUMI_EDITOR_TOKEN_SECRET must contain at least 32 characters when Collabora is enabled")
+		}
+	}
+	if config.OnlyOfficeEnabled {
+		if err := requireHTTPURL("ONLYOFFICE_URL", config.OnlyOfficeURL); err != nil {
+			return err
+		}
+		if len(config.OnlyOfficeJWTSecret) < 32 {
+			return fmt.Errorf("ONLYOFFICE_JWT_SECRET must contain at least 32 characters when ONLYOFFICE is enabled")
+		}
+	}
+	return nil
+}
+
+func requireHTTPURL(name, value string) error {
+	parsed, err := url.ParseRequestURI(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("%s must be an absolute HTTP(S) URL", name)
+	}
+	return nil
+}
+
+func booleanEnvironment(name string, fallback bool) (bool, error) {
+	value := envOrDefault(name, strconv.FormatBool(fallback))
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("parse %s: %w", name, err)
+	}
+	return parsed, nil
 }
 
 func envOrDefault(name, fallback string) string {

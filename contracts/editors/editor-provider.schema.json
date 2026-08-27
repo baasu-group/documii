@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://documi.org/contracts/editors/editor-provider.schema.json",
+  "title": "Documi editor provider status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "available", "capabilities", "families"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "enum": ["native", "collabora", "onlyoffice", "libreoffice-desktop", "google-docs", "google-sheets", "google-slides"]
+    },
+    "available": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["create", "edit", "view", "convert", "export", "collaborative", "browser", "desktop", "offline", "external", "external-process"]
+      }
+    },
+    "families": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "enum": ["native", "text", "spreadsheet", "presentation", "pdf"] }
+    }
+  }
+}

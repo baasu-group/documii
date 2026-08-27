@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-documi_dev_only}
       POSTGRES_DB: ${POSTGRES_DB:-documi}
     ports:
-      - "5432:5432"
+      - "${DOCUMI_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -86,6 +86,13 @@ services:
       DOCUMI_OIDC_ISSUER: http://keycloak:8080/realms/documi
       DOCUMI_STORAGE_ROOT: /var/lib/documi/storage
       AIR_GAPPED: ${AIR_GAPPED:-false}
+      DOCUMI_EDITOR_TOKEN_SECRET: ${DOCUMI_EDITOR_TOKEN_SECRET:-replace-with-at-least-32-random-characters}
+      COLLABORA_ENABLED: ${COLLABORA_ENABLED:-false}
+      COLLABORA_URL: ${COLLABORA_URL:-http://collabora:9980}
+      COLLABORA_PUBLIC_URL: ${COLLABORA_PUBLIC_URL:-http://localhost:9980}
+      ONLYOFFICE_ENABLED: ${ONLYOFFICE_ENABLED:-false}
+      ONLYOFFICE_URL: ${ONLYOFFICE_URL:-http://onlyoffice:80}
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-replace-with-at-least-32-random-characters}
     ports:
       - "8080:8080"
     volumes:
@@ -103,6 +110,16 @@ services:
     environment:
       DOCUMI_TEMPORAL_ADDRESS: temporal:7233
       AIR_GAPPED: ${AIR_GAPPED:-false}
+
+  collabora:
+    profiles: ["collabora"]
+    image: collabora/code:26.04.3.1.1
+    environment:
+      aliasgroup1: http://api:8080
+      extra_params: --o:ssl.enable=false --o:welcome.enable=false
+    ports:
+      - "9980:9980"
+    restart: unless-stopped
 
 volumes:
   postgres-data:

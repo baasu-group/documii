@@ -30,12 +30,14 @@ Only Node/pnpm is needed to run the browser shell. Root checks run every install
 ## First setup
 
 ```sh
-cp .env.example .env
+test -f .env || cp .env.example .env
 pnpm bootstrap
 pnpm dev
 ```
 
 Open `http://localhost:5173`. The browser app renders product navigation for Home, Documents, Data, Forms, Tasks, Automations, AI, Integrations, and Settings.
+
+For the complete local process, expected results, shutdown steps, and error troubleshooting, see [run.md](run.md).
 
 ## Development infrastructure
 

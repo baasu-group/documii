@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://documi.org/contracts/editors/native-document.schema.json",
+  "title": "Documi native document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "content"],
+  "properties": {
+    "format": { "const": "documi-json-v1" },
+    "content": {
+      "type": "object",
+      "required": ["type", "content"],
+      "properties": {
+        "type": { "const": "doc" },
+        "content": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  }
+}

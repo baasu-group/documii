@@ -1,8 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Icon } from "@documi/ui";
 import { navigation, type NavigationId } from "./navigation";
+import { DocumentsFeature } from "./features/documents/documents-feature";
+import { EditorSettings } from "./features/documents/editor-settings";
+import type { EditorPlatform } from "./features/documents/editor-platform";
+import type { EditorProviderId } from "@documi/shared-types";
 
 export type PlatformKind = "web" | "desktop";
+
+function documentEditorRoute() {
+  const match = window.location.pathname.match(/^\/documents\/([^/]+)\/edit\/?$/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+const editorProviderIds = new Set<EditorProviderId>([
+  "native",
+  "collabora",
+  "onlyoffice",
+  "libreoffice-desktop",
+  "google-docs",
+  "google-sheets",
+  "google-slides",
+]);
+
+function requestedEditorProvider(): EditorProviderId {
+  const requested = new URLSearchParams(window.location.search).get("provider") as EditorProviderId;
+  return editorProviderIds.has(requested) ? requested : "native";
+}
 
 const featureCopy: Record<Exclude<NavigationId, "home">, { title: string; description: string }> = {
   documents: {
@@ -33,7 +57,7 @@ const featureCopy: Record<Exclude<NavigationId, "home">, { title: string; descri
   },
 };
 
-function Home() {
+function Home({ onNewDocument }: { onNewDocument: () => void }) {
   const cards = [
     [
       "documents",
@@ -66,7 +90,7 @@ function Home() {
             Everything your team needs to move work forward.
           </p>
         </div>
-        <Button>
+        <Button onClick={onNewDocument}>
           <Icon name="plus" className="mr-2 h-4 w-4" /> New document
         </Button>
       </div>
@@ -133,8 +157,30 @@ function FeaturePlaceholder({ active }: { active: Exclude<NavigationId, "home"> 
   );
 }
 
-export function AppShell({ platform }: { platform: PlatformKind }) {
+export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform }) {
+  const editorPlatform: EditorPlatform =
+    typeof platform === "string" ? { kind: platform } : platform;
   const [active, setActive] = useState<NavigationId>("home");
+  const [documentId, setDocumentId] = useState(documentEditorRoute);
+  const [providerId, setProviderId] = useState<EditorProviderId>(requestedEditorProvider);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const next = documentEditorRoute();
+      setDocumentId(next);
+      setProviderId(requestedEditorProvider());
+      if (next) setActive("documents");
+    };
+    window.addEventListener("popstate", onPopState);
+    onPopState();
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const openNativeDocument = (id: string) => {
+    window.history.pushState({}, "", `/documents/${encodeURIComponent(id)}/edit`);
+    setDocumentId(id);
+    setActive("documents");
+  };
   return (
     <div className="min-h-screen bg-paper md:grid md:grid-cols-[240px_1fr]">
       <aside className="border-b border-black/[0.06] bg-[#fbfcfa] px-4 py-4 md:sticky md:top-0 md:h-screen md:border-b-0 md:border-r">
@@ -150,7 +196,7 @@ export function AppShell({ platform }: { platform: PlatformKind }) {
             <span className="text-lg font-semibold tracking-[-0.03em]">Documi</span>
           </button>
           <span className="rounded-md bg-moss px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-forest">
-            {platform}
+            {editorPlatform.kind}
           </span>
         </div>
         <nav aria-label="Product navigation" className="flex gap-1 overflow-x-auto pb-1 md:block">
@@ -189,7 +235,19 @@ export function AppShell({ platform }: { platform: PlatformKind }) {
           </label>
         </header>
         <div className="mx-auto max-w-6xl p-5 md:p-10">
-          {active === "home" ? <Home /> : <FeaturePlaceholder active={active} />}
+          {active === "home" ? (
+            <Home onNewDocument={() => setActive("documents")} />
+          ) : active === "documents" ? (
+            <DocumentsFeature
+              documentId={documentId}
+              providerId={providerId}
+              onOpenNative={openNativeDocument}
+            />
+          ) : active === "settings" ? (
+            <EditorSettings platform={editorPlatform} />
+          ) : (
+            <FeaturePlaceholder active={active} />
+          )}
         </div>
       </main>
     </div>

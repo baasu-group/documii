@@ -1,0 +1,72 @@
+.documi-editor {
+  border: 1px solid #d9dee8;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.documi-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.65rem;
+  border-bottom: 1px solid #e6e9ef;
+  background: #f7f8fa;
+}
+.documi-editor-toolbar button {
+  border: 1px solid #cbd2dc;
+  border-radius: 6px;
+  background: white;
+  color: #202735;
+  padding: 0.4rem 0.65rem;
+  cursor: pointer;
+}
+.documi-editor-toolbar button[aria-pressed="true"] {
+  background: #e8eefc;
+  border-color: #6d88c4;
+}
+.documi-editor-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.documi-editor-toolbar .documi-editor-save {
+  margin-left: auto;
+  background: #254f9c;
+  color: white;
+  border-color: #254f9c;
+}
+.documi-editor .tiptap {
+  min-height: 22rem;
+  padding: 1.5rem;
+  outline: none;
+  line-height: 1.6;
+}
+.documi-editor .tiptap p.is-editor-empty:first-child::before {
+  color: #89919f;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.documi-editor .tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.documi-editor .tiptap td,
+.documi-editor .tiptap th {
+  border: 1px solid #cbd2dc;
+  padding: 0.45rem;
+  min-width: 4rem;
+}
+.documi-editor .tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.documi-editor .tiptap ul[data-type="taskList"] li {
+  display: flex;
+  gap: 0.5rem;
+}
+.documi-editor-notice,
+.documi-editor-loading {
+  color: #626b78;
+  padding: 0.75rem 1rem;
+}

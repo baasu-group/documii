@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://documi.org/contracts/editors/document-editor-metadata.schema.json",
+  "title": "Document editor metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["editor_provider", "storage_mode"],
+  "properties": {
+    "editor_provider": { "$ref": "editor-provider.schema.json#/properties/id" },
+    "storage_mode": { "type": "string", "enum": ["managed", "external"] },
+    "external_provider": { "type": ["string", "null"] },
+    "external_file_id": { "type": ["string", "null"] },
+    "external_url": { "type": ["string", "null"], "format": "uri" },
+    "native_format": {
+      "anyOf": [{ "const": "documi-json-v1" }, { "type": "null" }]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "storage_mode": { "const": "external" } } },
+      "then": {
+        "required": ["external_provider", "external_file_id", "external_url"],
+        "properties": {
+          "external_provider": { "type": "string", "minLength": 1 },
+          "external_file_id": { "type": "string", "minLength": 1 },
+          "external_url": { "type": "string", "format": "uri" }
+        }
+      }
+    }
+  ]
+}

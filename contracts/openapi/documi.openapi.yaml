@@ -42,6 +42,105 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SystemInfo" }
+  /api/v1/document-editors:
+    get:
+      operationId: listDocumentEditors
+      tags: [Document Editors]
+      responses:
+        "200":
+          description: Normalized provider availability without provider secrets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [providers]
+                properties:
+                  providers:
+                    type: array
+                    items: { $ref: "#/components/schemas/EditorProviderStatus" }
+  /api/v1/document-editors/{provider}/status:
+    get:
+      operationId: getDocumentEditorStatus
+      tags: [Document Editors]
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/EditorProviderId" }
+      responses:
+        "200":
+          description: Normalized provider status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EditorProviderStatus" }
+        "404": { description: Provider ID is not registered. }
+  /api/v1/documents/{id}/editor-session:
+    post:
+      operationId: createDocumentEditorSession
+      tags: [Document Editors]
+      description: Creates a short-lived authorized provider session. Fails closed until the Documents permission/version service is available.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [providerId, requestedEdit]
+              properties:
+                providerId: { $ref: "#/components/schemas/EditorProviderId" }
+                requestedEdit: { type: boolean }
+      responses:
+        "201":
+          description: Authorized editor session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EditorSession" }
+        "501": { description: Documents authorization/version integration is not available. }
+  /api/v1/wopi/files/{id}:
+    get:
+      operationId: wopiCheckFileInfo
+      tags: [WOPI]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: access_token, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Permission-filtered WOPI file information. }
+        "401": { description: Missing, invalid, expired, or mismatched editor token. }
+        "403": { description: Current document permission denies access. }
+  /api/v1/wopi/files/{id}/contents:
+    get:
+      operationId: wopiGetFile
+      tags: [WOPI]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: access_token, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Authorized document version bytes. }
+        "401": { description: Invalid editor token. }
+        "403": { description: Current document permission denies access. }
+    post:
+      operationId: wopiPutFile
+      tags: [WOPI]
+      description: Routes validated content to the Documents service to create a new immutable version.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: access_token, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200": { description: A new document version was created. }
+        "401": { description: Invalid editor token. }
+        "403": { description: Current edit permission is absent. }
+        "409": { description: Document version conflict. }
 components:
   schemas:
     Status:
@@ -59,3 +158,35 @@ components:
         version: { type: string }
         environment: { type: string }
         airGapped: { type: boolean }
+    EditorProviderId:
+      type: string
+      enum: [native, collabora, onlyoffice, libreoffice-desktop, google-docs, google-sheets, google-slides]
+    EditorProviderStatus:
+      type: object
+      additionalProperties: false
+      required: [id, available, capabilities, families]
+      properties:
+        id: { $ref: "#/components/schemas/EditorProviderId" }
+        available: { type: boolean }
+        reason: { type: string }
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [create, edit, view, convert, export, collaborative, browser, desktop, offline, external, external-process]
+        families:
+          type: array
+          items:
+            type: string
+            enum: [native, text, spreadsheet, presentation, pdf]
+    EditorSession:
+      type: object
+      additionalProperties: false
+      required: [providerId, mode, readOnly]
+      properties:
+        providerId: { $ref: "#/components/schemas/EditorProviderId" }
+        mode: { type: string }
+        url: { type: string, format: uri }
+        accessToken: { type: string, writeOnly: true }
+        expiresAt: { type: string, format: date-time }
+        readOnly: { type: boolean }

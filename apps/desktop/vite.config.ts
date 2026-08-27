@@ -11,5 +11,6 @@ export default defineConfig({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
+    proxy: { "/api": "http://127.0.0.1:8080" },
   },
 });

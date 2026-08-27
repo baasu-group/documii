@@ -28,7 +28,7 @@ The bootstrap does not provide production invoice automation, offline multi-mast
 | Area | Choice |
 | --- | --- |
 | Web | React, TypeScript, Vite, Tailwind CSS, pnpm workspaces |
-| Native documents | Tiptap (introduced when editing begins) |
+| Native documents | Tiptap behind the `native` editor provider |
 | Desktop | Tauri v2, shared React UI, Rust for native integration |
 | Core | Go modular monolith, REST initially |
 | AI/document processing | Python, `uv`, Docling/Tesseract integrations later |
@@ -132,6 +132,8 @@ erDiagram
 
 A document is the stable business identity; each content change creates a new immutable version. A version records document/version IDs, provider and storage key, SHA-256, byte size, MIME type, creator, and timestamps. PostgreSQL stores metadata, never ordinary document bytes. The storage provider stores bytes. Corrections create new versions rather than overwriting prior records.
 
+Documents also select an editor through a capability-based provider boundary. The Documents domain does not depend on Tiptap, Collabora, ONLYOFFICE, LibreOffice, or Google. It remains authoritative for permission, bytes, versions, metadata, and audit. Managed content and external references are explicitly different storage modes. See [Document editor architecture](docs/architecture/document-editors.md) and [ADR 0011](docs/adr/0011-document-editor-provider-architecture.md).
+
 ## 13. Storage abstraction
 
 The documents/storage boundary owns a small provider contract with `Put`, `Get`, `Delete`, `Move`, and `Exists` operations plus typed metadata/errors. Local filesystem and mounted-filesystem providers are initial implementations: both use paths managed by the operating system. S3-compatible storage is deferred. Keys are validated and cannot escape the configured root; deleting business records is policy-controlled above the byte-store adapter.
@@ -211,6 +213,8 @@ Documi Desktop
 
 A purely local workspace needs no server. Rust provides native integration rather than duplicating business behavior. Local Workspace is an explicit workspace kind and is not automatically synchronized with server state.
 
+Desktop-only Office integration stays behind the shared app-shell platform interface. The Tauri `check_libreoffice` command performs fixed detection only. Future open/save-back uses controlled working copies and the Documents service; React cannot launch arbitrary commands or see internal server storage paths.
+
 ## 23. Server architecture
 
 Browser or desktop clients call the Go API. PostgreSQL/pgvector is canonical; Temporal coordinates durable work; Keycloak authenticates through OIDC; Go and Python workers execute activities; company-controlled storage retains bytes; configured private AI performs optional inference. Reverse proxy/TLS and production secret management are deployment responsibilities documented before first release.
@@ -218,6 +222,8 @@ Browser or desktop clients call the Go API. PostgreSQL/pgvector is canonical; Te
 ## 24. Air-gapped architecture
 
 With `AIR_GAPPED=true`, runtime behavior makes no required outbound calls. Telemetry is disabled, application assets/fonts are local, AI model download is manual, providers requiring external endpoints are rejected by configuration, and integrations remain disabled until an administrator supplies reachable internal endpoints. Release artifacts will eventually include image and dependency manifests plus offline installation guidance.
+
+Google editor providers are rejected server-side in air-gapped mode. Native editing remains available. Collabora, ONLYOFFICE, LibreOffice Desktop, and future LibreOffice conversion may operate when deployed wholly inside the private network; none is a required dependency.
 
 ## 25. API principles
 
@@ -242,7 +248,7 @@ Docker Compose is the development and initial single-node server profile. Images
 
 ## 29. Explicitly deferred features
 
-Full domain schema and invoice flow; production OIDC enforcement; SQLite/sqlite-vec local persistence; Tiptap editing; Docling/Tesseract/model dependencies; reranking; generated SDKs; S3; outbound connectors/webhooks; secret encryption; advanced SSO; realtime protocols; multi-node scaling; Kubernetes implementation; local/server synchronization; marketplace and mobile applications.
+Full domain schema and invoice flow; production OIDC enforcement; SQLite/sqlite-vec local persistence; native document persistence; production Collabora/ONLYOFFICE callbacks and sessions; LibreOffice open/save-back and conversion runtime; Google OAuth/import/export; Docling/Tesseract/model dependencies; reranking; generated SDKs; S3; outbound connectors/webhooks; secret encryption; advanced SSO; realtime protocols; multi-node scaling; Kubernetes implementation; local/server synchronization; marketplace and mobile applications.
 
 ## 30. ADR index
 
@@ -256,7 +262,8 @@ Full domain schema and invoice flow; production OIDC enforcement; SQLite/sqlite-
 8. [Local versus server workspaces](docs/adr/0008-local-vs-server-workspaces.md)
 9. [Modular monolith](docs/adr/0009-modular-monolith.md)
 10. [Polyglot monorepo](docs/adr/0010-polyglot-monorepo.md)
+11. [Document editor provider architecture](docs/adr/0011-document-editor-provider-architecture.md)
 
 ## 31. Current implementation status
 
-Implemented in the bootstrap: a shared web/desktop React shell; conventional Tauri v2 native entry point; Go health/readiness/system API with graceful shutdown; Temporal workflow/activity registration; SQL migration utility and pgvector bootstrap migration; Python document/AI worker entry points and disabled-provider contract; authoritative initial contracts; PostgreSQL/Temporal/Keycloak Compose dependencies; root quality commands; CI; and engineering/security documentation. Unit tests cover navigation, API handlers/readiness, configuration, Temporal activity wiring, Python health/workers, and fail-closed AI behavior. No production identity enforcement, persistence-backed domain behavior, document pipeline, or invoice workflow is claimed.
+Implemented in the bootstrap: a shared web/desktop React shell; Tiptap native editor boundary; capability-based editor registry/resolver and normalized availability API; fail-closed editor-session API; Collabora token/WOPI foundation; ONLYOFFICE signing foundation; Tauri LibreOffice detection; conventional Tauri v2 native entry point; Go health/readiness/system API with graceful shutdown; Temporal workflow/activity registration; SQL migration utility and pgvector bootstrap migration; Python document/AI worker entry points and disabled-provider contract; authoritative initial contracts; PostgreSQL/Temporal/Keycloak plus optional Collabora Compose dependencies; root quality commands; CI; and engineering/security documentation. Unit tests cover editor resolution and availability, WOPI access/read-only/version boundaries, token signing, native format, navigation, API handlers/readiness, configuration, Temporal activity wiring, Python health/workers, and fail-closed AI behavior. No production identity enforcement, persistence-backed Documents aggregate, durable native save, live Office session, Google connector, document pipeline, or invoice workflow is claimed.
