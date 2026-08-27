@@ -24,7 +24,10 @@ type Config struct {
 	PublicURL         string
 }
 
-type AuthConfig struct{ Mode, Issuer, DiscoveryURL, Audience, ClientID, DevelopmentSubject, DevelopmentEmail, DevelopmentName string }
+type AuthConfig struct {
+	Mode, Issuer, DiscoveryURL, Audience, ClientID, DevelopmentSubject, DevelopmentEmail, DevelopmentName, PlatformGroupClaim string
+	PlatformAdminGroups                                                                                                       []string
+}
 
 type EditorConfig struct {
 	TokenSecret         string
@@ -67,7 +70,7 @@ func Load() (Config, error) {
 		AirGapped:         airGapped,
 		ShutdownTimeout:   10 * time.Second,
 		PublicURL:         envOrDefault("DOCUMI_PUBLIC_URL", "http://localhost:8080"),
-		Auth:              AuthConfig{Mode: envOrDefault("DOCUMI_AUTH_MODE", authMode), Issuer: os.Getenv("DOCUMI_OIDC_ISSUER"), DiscoveryURL: os.Getenv("DOCUMI_OIDC_DISCOVERY_URL"), Audience: envOrDefault("DOCUMI_OIDC_AUDIENCE", "documi-api"), ClientID: envOrDefault("DOCUMI_OIDC_CLIENT_ID", "documi-web"), DevelopmentSubject: envOrDefault("DOCUMI_DEV_SUBJECT", "local-admin"), DevelopmentEmail: envOrDefault("DOCUMI_DEV_EMAIL", "admin@documi.local"), DevelopmentName: envOrDefault("DOCUMI_DEV_NAME", "Local administrator")},
+		Auth:              AuthConfig{Mode: envOrDefault("DOCUMI_AUTH_MODE", authMode), Issuer: os.Getenv("DOCUMI_OIDC_ISSUER"), DiscoveryURL: os.Getenv("DOCUMI_OIDC_DISCOVERY_URL"), Audience: envOrDefault("DOCUMI_OIDC_AUDIENCE", "documi-api"), ClientID: envOrDefault("DOCUMI_OIDC_CLIENT_ID", "documi-web"), DevelopmentSubject: envOrDefault("DOCUMI_DEV_SUBJECT", "local-admin"), DevelopmentEmail: envOrDefault("DOCUMI_DEV_EMAIL", "admin@documi.local"), DevelopmentName: envOrDefault("DOCUMI_DEV_NAME", "Local administrator"), PlatformGroupClaim: envOrDefault("DOCUMI_PLATFORM_GROUP_CLAIM", "groups"), PlatformAdminGroups: splitList(os.Getenv("DOCUMI_PLATFORM_ADMIN_GROUPS"))},
 		Editors: EditorConfig{
 			TokenSecret:         os.Getenv("DOCUMI_EDITOR_TOKEN_SECRET"),
 			CollaboraEnabled:    collaboraEnabled,
@@ -115,6 +118,16 @@ func Load() (Config, error) {
 		}
 	}
 	return config, nil
+}
+
+func splitList(value string) []string {
+	var out []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func (config EditorConfig) Validate() error {

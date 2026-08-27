@@ -397,6 +397,10 @@ This is idempotent for the issuer/subject and names and never guesses the first 
 
 For `DOCUMI_AUTH_MODE=development`, use `--issuer documi-development` and set `--subject` to `DOCUMI_DEV_SUBJECT` (default `local-admin`). Development auth is rejected outside development/test environments.
 
+To grant the exact bootstrapped identity platform administration, add `--platform-admin`. In OIDC deployments, an alternative exact group allowlist is configured with `DOCUMI_PLATFORM_GROUP_CLAIM` (default `groups`) and comma-separated `DOCUMI_PLATFORM_ADMIN_GROUPS`. Realm or client role names are never converted into Documi permissions.
+
+After migration `000003`, open `/platform` for deployment metrics and `/platform/organizations` to create, suspend, or reactivate organizations. Organization routes live below `/organizations/<id>/...`; `/dashboard` is the member home. In development only, organization creation returns a copyable one-time invitation URL. Production deployments must configure the notification adapter before invitations are enabled.
+
 ### Use PostgreSQL on another private-network server
 
 PostgreSQL is optional for a purely local desktop workspace. For a company workspace it may run on another LAN host; only the API, migration, and admin processes receive its URL:

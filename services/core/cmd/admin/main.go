@@ -17,19 +17,20 @@ func main() {
 	subject := flag.String("subject", "", "OIDC subject")
 	email := flag.String("email", "", "email")
 	name := flag.String("display-name", "", "display name")
+	platformAdmin := flag.Bool("platform-admin", false, "grant platform super-admin authority to this exact OIDC identity")
 	flag.Parse()
 	if *organization == "" || *workspace == "" || *issuer == "" || *subject == "" || *name == "" {
 		fmt.Fprintln(os.Stderr, "organization, workspace, issuer, subject, and name are required")
 		os.Exit(2)
 	}
-	if err := bootstrap(context.Background(), os.Getenv("DOCUMI_DATABASE_URL"), *organization, *workspace, *issuer, *subject, *email, *name); err != nil {
+	if err := bootstrap(context.Background(), os.Getenv("DOCUMI_DATABASE_URL"), *organization, *workspace, *issuer, *subject, *email, *name, *platformAdmin); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	fmt.Println("bootstrap: organization owner is ready")
 }
 
-func bootstrap(ctx context.Context, databaseURL, organizationName, workspaceName, issuer, subject, email, displayName string) error {
+func bootstrap(ctx context.Context, databaseURL, organizationName, workspaceName, issuer, subject, email, displayName string, platformAdmin bool) error {
 	if databaseURL == "" {
 		return fmt.Errorf("DOCUMI_DATABASE_URL is required")
 	}
@@ -78,6 +79,20 @@ func bootstrap(ctx context.Context, databaseURL, organizationName, workspaceName
 	_, err = tx.Exec(ctx, "INSERT INTO authorization_grants(id,organization_id,principal_type,user_id,scope_type,role,created_by) SELECT $1,$2,'user',$3,'organization','owner',$3 WHERE NOT EXISTS(SELECT 1 FROM authorization_grants WHERE organization_id=$2 AND user_id=$3 AND scope_type='organization' AND role='owner')", uuid.New(), organizationID, userID)
 	if err != nil {
 		return err
+	}
+	_, err = tx.Exec(ctx, "INSERT INTO organization_settings(organization_id) VALUES($1) ON CONFLICT DO NOTHING", organizationID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, "INSERT INTO organization_memberships(organization_id,user_id,role,status) VALUES($1,$2,'owner','active') ON CONFLICT(organization_id,user_id) DO UPDATE SET role='owner',status='active',updated_at=now()", organizationID, userID)
+	if err != nil {
+		return err
+	}
+	if platformAdmin {
+		_, err = tx.Exec(ctx, "INSERT INTO platform_authorization_grants(id,issuer,subject,created_by) VALUES($1,$2,$3,$4) ON CONFLICT(issuer,subject) DO NOTHING", uuid.New(), issuer, subject, userID)
+		if err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

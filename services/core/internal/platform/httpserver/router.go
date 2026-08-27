@@ -10,6 +10,8 @@ import (
 	"github.com/documi/documi/services/core/internal/modules/documents"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
+	"github.com/documi/documi/services/core/internal/modules/organizations"
+	"github.com/documi/documi/services/core/internal/modules/reporting"
 	"github.com/documi/documi/services/core/internal/modules/system"
 	platformauth "github.com/documi/documi/services/core/internal/platform/auth"
 )
@@ -34,6 +36,8 @@ type Routes struct {
 	AuthConfig     map[string]any
 	Documents      *documents.Handler
 	Administration *administration.Handler
+	Organizations  *organizations.Handler
+	Reporting      *reporting.Handler
 }
 
 func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Handler {
@@ -101,6 +105,28 @@ func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Han
 		mux.Handle("GET /api/v1/organizations/{organizationId}/editor-policies", protected(routes.Administration.EditorPolicies))
 		mux.Handle("PUT /api/v1/organizations/{organizationId}/editor-policies", protected(routes.Administration.EditorPolicies))
 		mux.Handle("GET /api/v1/access/effective", protected(routes.Administration.EffectiveAccess))
+	}
+	if routes.Organizations != nil && routes.Authenticator != nil {
+		protected := func(handler http.HandlerFunc) http.Handler {
+			return platformauth.Middleware(routes.Authenticator, handler)
+		}
+		mux.Handle("GET /api/v1/session-context", protected(routes.Organizations.Session))
+		mux.Handle("GET /api/v1/platform/organizations", protected(routes.Organizations.Organizations))
+		mux.Handle("POST /api/v1/platform/organizations", protected(routes.Organizations.Organizations))
+		mux.Handle("PATCH /api/v1/platform/organizations/{id}", protected(routes.Organizations.Organization))
+		mux.Handle("GET /api/v1/platform/dashboard", protected(routes.Organizations.PlatformDashboard))
+		mux.Handle("GET /api/v1/organizations/{id}/dashboard", protected(routes.Organizations.OrganizationDashboard))
+		mux.Handle("POST /api/v1/invitations/{token}/accept", protected(routes.Organizations.AcceptInvitation))
+	}
+	if routes.Reporting != nil && routes.Authenticator != nil {
+		protected := func(handler http.HandlerFunc) http.Handler {
+			return platformauth.Middleware(routes.Authenticator, handler)
+		}
+		mux.Handle("GET /api/v1/report-definitions", protected(routes.Reporting.Definitions))
+		mux.Handle("GET /api/v1/organizations/{id}/report-runs", protected(routes.Reporting.Runs))
+		mux.Handle("POST /api/v1/organizations/{id}/report-runs", protected(routes.Reporting.Runs))
+		mux.Handle("GET /api/v1/report-runs/{id}", protected(routes.Reporting.Run))
+		mux.Handle("POST /api/v1/report-runs/{id}/exports", protected(routes.Reporting.Export))
 	}
 	if routes.WOPI != nil {
 		mux.HandleFunc("GET /api/v1/wopi/files/{id}", routes.WOPI.CheckFileInfo)

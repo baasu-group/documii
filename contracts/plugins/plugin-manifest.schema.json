@@ -1,14 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://documi.org/contracts/plugins/plugin-manifest.schema.json",
-  "title": "Documi plugin manifest (reserved)",
+  "title": "Documi trusted integration manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "version", "name", "capabilities"],
+  "required": ["id", "version", "name", "integrationType", "deploymentTargets", "capabilities", "configurationSchema", "secretSchema", "networkEgress", "airGapCompatible", "healthContract"],
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9.-]+$" },
     "version": { "type": "string" },
     "name": { "type": "string", "minLength": 1 },
-    "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+    "integrationType": { "enum": ["editor", "connector", "desktop-extension", "converter"] },
+    "deploymentTargets": { "type": "array", "items": { "enum": ["server", "web", "desktop", "worker"] }, "minItems": 1, "uniqueItems": true },
+    "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "configurationSchema": { "type": "object" },
+    "secretSchema": { "type": "object" },
+    "networkEgress": { "type": "array", "items": { "type": "string", "format": "uri" }, "uniqueItems": true },
+    "airGapCompatible": { "type": "boolean" },
+    "healthContract": { "type": "object", "required": ["timeoutSeconds"], "properties": { "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 30 } }, "additionalProperties": false }
   }
 }

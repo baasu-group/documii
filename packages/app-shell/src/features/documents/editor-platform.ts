@@ -9,6 +9,31 @@ export interface EditorPlatform {
   checkLibreOffice?: () => Promise<LibreOfficeStatus>;
   documents?: DocumentGateway;
   administration?: AdministrationGateway;
+  organizations?: OrganizationGateway;
+}
+
+export interface OrganizationGateway {
+  session(): Promise<SessionContext>;
+  platformOrganizations(): Promise<OrganizationRecord[]>;
+  createOrganization(
+    name: string,
+    ownerEmail: string,
+  ): Promise<{ organization: OrganizationRecord; ownerInvitation?: OrganizationInvitation }>;
+  updateOrganization(
+    id: string,
+    value: { status?: "active" | "suspended"; shareDocumentTitlesWithPlatformAdmins?: boolean },
+  ): Promise<OrganizationRecord>;
+  platformDashboard(): Promise<OrganizationDashboard>;
+  organizationDashboard(id: string): Promise<OrganizationDashboard>;
+  reportDefinitions(): Promise<ReportDefinition[]>;
+  reportRuns(organizationId: string): Promise<ReportRun[]>;
+  createReportRun(
+    organizationId: string,
+    definitionId: ReportRun["definitionId"],
+    format: ReportRun["format"],
+    filters: Record<string, string>,
+  ): Promise<ReportRun>;
+  exportReport(runId: string): Promise<ReportRun>;
 }
 
 export interface AdministrationGateway {
@@ -92,4 +117,10 @@ import type {
   DocumentFamily,
   EditorProviderId,
   EditorSession,
+  SessionContext,
+  OrganizationRecord,
+  OrganizationDashboard,
+  OrganizationInvitation,
+  ReportDefinition,
+  ReportRun,
 } from "@documi/shared-types";

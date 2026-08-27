@@ -4,6 +4,7 @@ import { AppShell } from "@documi/app-shell";
 import {
   createServerAdministrationGateway,
   createServerDocumentGateway,
+  createServerOrganizationGateway,
   setDefaultAccessTokenProvider,
 } from "@documi/api-client";
 import "@documi/ui/styles.css";
@@ -15,12 +16,13 @@ async function start() {
   setDefaultAccessTokenProvider(accessToken);
   const documents = createServerDocumentGateway({ baseUrl: window.location.origin });
   const administration = createServerAdministrationGateway({ baseUrl: window.location.origin });
+  const organizations = createServerOrganizationGateway({ baseUrl: window.location.origin });
 
   if (!root) throw new Error("Missing #root element");
 
   createRoot(root).render(
     <StrictMode>
-      <AppShell platform={{ kind: "web", documents, administration }} />
+      <AppShell platform={{ kind: "web", documents, administration, organizations }} />
     </StrictMode>,
   );
 }

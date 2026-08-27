@@ -33,6 +33,8 @@ WITH RECURSIVE ancestors(id,parent_id) AS (
 )
 SELECT DISTINCT g.role::text
 FROM authorization_grants g
+JOIN organizations organization ON organization.id=g.organization_id AND organization.status='active'
+JOIN organization_memberships membership ON membership.organization_id=g.organization_id AND membership.user_id=$1 AND membership.status='active'
 WHERE g.organization_id=$2
   AND (g.user_id=$1 OR g.group_id IN (SELECT group_id FROM group_members WHERE user_id=$1))
   AND (

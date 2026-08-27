@@ -177,3 +177,100 @@ export interface AuditPage {
   events: AuditEvent[];
   nextCursor?: string;
 }
+
+export type OrganizationStatus = "pending" | "active" | "suspended";
+export interface SessionUser {
+  id: string;
+  issuer: string;
+  externalSubject: string;
+  email?: string;
+  displayName: string;
+  emailVerified: boolean;
+}
+export interface SessionOrganization {
+  id: string;
+  name: string;
+  role: AuthorizationRole;
+  status: OrganizationStatus;
+}
+export interface SessionContext {
+  user: SessionUser;
+  platformAdmin: boolean;
+  organizations: SessionOrganization[];
+  activeOrganizationId?: string;
+  workspaces: Workspace[];
+  platformCapabilities: string[];
+}
+export interface OrganizationRecord {
+  id: string;
+  name: string;
+  status: OrganizationStatus;
+  shareDocumentTitlesWithPlatformAdmins: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface OrganizationInvitation {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: AuthorizationRole;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expiresAt: string;
+  createdAt: string;
+  acceptanceUrl?: string;
+}
+export interface OrganizationDashboard {
+  organizations?: number;
+  suspendedOrganizations?: number;
+  members: number;
+  documents: number;
+  versions: number;
+  storageBytes: number;
+  externalDocuments: number;
+  pendingInvitations: number;
+  providerErrors?: number;
+  reportFailures?: number;
+}
+export type IntegrationState =
+  | "installed"
+  | "disabled"
+  | "setup-required"
+  | "connected"
+  | "error"
+  | "unavailable"
+  | "blocked-by-air-gap";
+export interface IntegrationStatus {
+  id: string;
+  name: string;
+  version: string;
+  state: IntegrationState;
+  capabilities: string[];
+  airGapCompatible: boolean;
+  description: string;
+}
+export type ReportDefinitionId =
+  | "platform-organization-overview"
+  | "organization-document-storage"
+  | "membership-access-review"
+  | "audit-activity"
+  | "external-editor-risk";
+export interface ReportDefinition {
+  id: ReportDefinitionId;
+  name: string;
+  description: string;
+  formats: ("csv" | "xlsx" | "pdf")[];
+}
+export interface ReportRun {
+  id: string;
+  organizationId: string;
+  workspaceId?: string;
+  definitionId: ReportDefinitionId;
+  format: "csv" | "xlsx" | "pdf";
+  filters: Record<string, string>;
+  status: "queued" | "running" | "completed" | "failed";
+  documentId?: string;
+  errorCode?: string;
+  createdBy: string;
+  createdAt: string;
+  completedAt?: string;
+}

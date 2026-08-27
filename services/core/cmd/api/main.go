@@ -14,7 +14,9 @@ import (
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
 	"github.com/documi/documi/services/core/internal/modules/documents/templates"
+	"github.com/documi/documi/services/core/internal/modules/organizations"
 	"github.com/documi/documi/services/core/internal/modules/permissions"
+	"github.com/documi/documi/services/core/internal/modules/reporting"
 	"github.com/documi/documi/services/core/internal/modules/storage"
 	"github.com/documi/documi/services/core/internal/modules/system"
 	platformauth "github.com/documi/documi/services/core/internal/platform/auth"
@@ -39,15 +41,19 @@ func main() {
 
 	systemService := system.NewService(version, configValue.Environment, configValue.AirGapped)
 	var authenticator platformauth.Authenticator
+	platformAdminGroups := configValue.Auth.PlatformAdminGroups
+	if configValue.Auth.Mode == "development" && len(platformAdminGroups) == 0 {
+		platformAdminGroups = []string{"documi-platform-admin"}
+	}
 	if configValue.Auth.Mode == "oidc" {
-		value, err := platformauth.NewOIDCAuthenticator(ctx, configValue.Auth.Issuer, configValue.Auth.DiscoveryURL, configValue.Auth.Audience)
+		value, err := platformauth.NewOIDCAuthenticator(ctx, configValue.Auth.Issuer, configValue.Auth.DiscoveryURL, configValue.Auth.Audience, configValue.Auth.PlatformGroupClaim)
 		if err != nil {
 			logger.Error("configure OIDC", "error", err)
 			os.Exit(1)
 		}
 		authenticator = value
 	} else {
-		authenticator = platformauth.DevelopmentAuthenticator{Subject: platformauth.Subject{ID: configValue.Auth.DevelopmentSubject, Issuer: "documi-development", ExternalSubject: configValue.Auth.DevelopmentSubject, Email: configValue.Auth.DevelopmentEmail, DisplayName: configValue.Auth.DevelopmentName}}
+		authenticator = platformauth.DevelopmentAuthenticator{Subject: platformauth.Subject{ID: configValue.Auth.DevelopmentSubject, Issuer: "documi-development", ExternalSubject: configValue.Auth.DevelopmentSubject, Email: configValue.Auth.DevelopmentEmail, DisplayName: configValue.Auth.DevelopmentName, EmailVerified: true, Groups: platformAdminGroups}}
 	}
 	var documentHandler *documents.Handler
 	var documentService *documents.Service
@@ -156,6 +162,8 @@ func main() {
 	}
 	editorHandler := editors.NewHandler(editorService, sessionService)
 	var administrationHandler *administration.Handler
+	var organizationHandler *organizations.Handler
+	var reportingHandler *reporting.Handler
 	if databasePool != nil {
 		administrationService := administration.NewService(databasePool, permissions.NewAuthorizer(databasePool), func(ctx context.Context, family, providerID string) error {
 			status, err := editorService.Provider(ctx, editors.ProviderID(providerID))
@@ -170,6 +178,8 @@ func main() {
 			return editors.ErrProviderUnavailable
 		})
 		administrationHandler = administration.NewHandler(administrationService)
+		organizationHandler = organizations.NewHandler(organizations.NewService(databasePool, platformAdminGroups, configValue.Environment == "development", configValue.PublicURL))
+		reportingHandler = reporting.NewHandler(reporting.NewService(databasePool, documentService))
 	}
 	var readiness httpserver.Readiness = httpserver.StaticReadiness(true)
 	if databasePool != nil {
@@ -190,6 +200,8 @@ func main() {
 			AuthConfig:     map[string]any{"mode": configValue.Auth.Mode, "issuer": configValue.Auth.Issuer, "audience": configValue.Auth.Audience, "clientId": configValue.Auth.ClientID},
 			Documents:      documentHandler,
 			Administration: administrationHandler,
+			Organizations:  organizationHandler,
+			Reporting:      reportingHandler,
 		}, readiness),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,

@@ -115,6 +115,8 @@ func (service *Service) Workspaces(ctx context.Context, actorID string) ([]Works
 	}
 	rows, err := service.pool.Query(ctx, `SELECT DISTINCT w.id,w.organization_id,w.name FROM workspaces w
 JOIN authorization_grants g ON g.organization_id=w.organization_id
+JOIN organizations o ON o.id=w.organization_id AND o.status='active'
+JOIN organization_memberships m ON m.organization_id=w.organization_id AND m.user_id=$1 AND m.status='active'
 WHERE (g.user_id=$1 OR g.group_id IN (SELECT group_id FROM group_members WHERE user_id=$1))
 AND (g.scope_type='organization' OR g.workspace_id=w.id)
 ORDER BY w.name,w.id`, actor)
@@ -152,6 +154,8 @@ SELECT d.id,d.workspace_id,d.folder_id,d.title,d.family,d.mime_type,d.editor_pro
        d.current_version_id,d.created_at,d.updated_at,d.organization_id
 FROM documents d WHERE d.workspace_id=$2 AND EXISTS (
  SELECT 1 FROM authorization_grants g
+ JOIN organizations o ON o.id=g.organization_id AND o.status='active'
+ JOIN organization_memberships m ON m.organization_id=g.organization_id AND m.user_id=$1 AND m.status='active'
  WHERE g.organization_id=d.organization_id
  AND (g.user_id=$1 OR g.group_id IN (SELECT group_id FROM group_members WHERE user_id=$1))
  AND (g.scope_type='organization' OR (g.scope_type='workspace' AND g.workspace_id=d.workspace_id)

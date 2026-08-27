@@ -1,6 +1,6 @@
 # Documi architecture
 
-Status: implemented bootstrap plus local document persistence and server persistence foundations. Last updated: 2026-08-27.
+Status: implemented bootstrap, document persistence, server authorization, and organization administration vertical-slice foundations. Last updated: 2026-08-27.
 
 ## 1. Product vision
 
@@ -98,7 +98,7 @@ The intended Go domain modules are `auth`, `organizations`, `users`, `groups`, `
 
 ## 8. Frontend architecture
 
-`apps/web` and `apps/desktop` are platform bootstraps. `packages/app-shell` owns navigation and product feature composition for Home, Documents, Data, Forms, Tasks, Automations, AI, Integrations, and Settings. `packages/ui` owns accessible primitives and design tokens. `packages/editor`, `workflow-designer`, `api-client`, `shared-types`, and `config` own their named reusable concerns.
+`apps/web` and `apps/desktop` are platform bootstraps. `packages/app-shell` owns typed browser/hash route interpretation and product feature composition for member, organization, platform, document, integration, reporting, and settings views. Session context is loaded through a shared gateway; components do not call HTTP or Tauri directly. `packages/ui` owns accessible primitives and design tokens. `packages/editor`, `workflow-designer`, `api-client`, `shared-types`, and `config` own their named reusable concerns.
 
 Platform-specific filesystem, update, and native-dialog functions implement a platform interface. Shared feature code never calls Tauri APIs directly. Tailwind scans shared package source; assets and fonts are bundled locally.
 
@@ -202,6 +202,16 @@ Implemented document, folder, group, membership, grant, editor-policy, and Colla
 ## 21. Secrets architecture
 
 Environment variables provide bootstrap process configuration. Connection credentials and integration secrets will use an encrypted secret-store abstraction, with ciphertext and key metadata separate from external master-key material. Secrets are redacted from logs, events, audit metadata, API responses, and diagnostics. Rotation and access auditing are required before production connector credentials are stored.
+
+Migration `000003` establishes platform grants, organization settings and memberships, expiring invitation records, report runs, trusted integration installations/connections, and encrypted-secret records. Application adapters must use the SecretStore boundary before writing connector credentials; direct table access from connector handlers is prohibited.
+
+## 21.1 Organization and reporting authority
+
+Documi owns membership and role state even when an identity provider sends an invitation. Platform authority is separate from organization/document authority and never grants content access. Organization status is checked in the permission query, so suspension blocks document and provider operations server-side. Curated reports use PostgreSQL aggregates and, when exported, enter the managed document/version/audit flow. See ADR 0013.
+
+## 21.2 Trusted integrations
+
+The manifest under `contracts/plugins` describes trusted integration metadata; it is not a dynamic code-loading mechanism. Native, Collabora, LibreOffice, and Google adapters remain compiled into their owning deployment target. Air-gap and network-egress declarations are enforced by server configuration. See ADR 0014.
 
 ## 22. Local desktop architecture
 

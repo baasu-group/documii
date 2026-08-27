@@ -5,11 +5,22 @@ import { DocumentsFeature } from "./features/documents/documents-feature";
 import { EditorSettings } from "./features/documents/editor-settings";
 import type { EditorPlatform } from "./features/documents/editor-platform";
 import type { EditorProviderId } from "@documi/shared-types";
+import type { SessionContext } from "@documi/shared-types";
+import {
+  MemberHome,
+  OrganizationHome,
+  PlatformConsole,
+} from "./features/organizations/organization-console";
 
 export type PlatformKind = "web" | "desktop";
 
-function documentEditorRoute() {
-  const match = window.location.pathname.match(/^\/documents\/([^/]+)\/edit\/?$/);
+function routePath(kind: PlatformKind) {
+  return kind === "desktop"
+    ? window.location.hash.slice(1) || "/dashboard"
+    : window.location.pathname;
+}
+function documentEditorRoute(kind: PlatformKind = "web") {
+  const match = routePath(kind).match(/^\/documents\/([^/]+)\/edit\/?$/);
   return match ? decodeURIComponent(match[1]) : undefined;
 }
 
@@ -163,22 +174,50 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
   const [active, setActive] = useState<NavigationId>("home");
   const [documentId, setDocumentId] = useState(documentEditorRoute);
   const [providerId, setProviderId] = useState<EditorProviderId>(requestedEditorProvider);
+  const [path, setPath] = useState(() => routePath(editorPlatform.kind));
+  const [session, setSession] = useState<SessionContext>();
+  const [sessionError, setSessionError] = useState<string>();
+
+  useEffect(() => {
+    editorPlatform.organizations
+      ?.session()
+      .then(setSession)
+      .catch((error) =>
+        setSessionError(error instanceof Error ? error.message : "session_unavailable"),
+      );
+  }, [editorPlatform.organizations]);
 
   useEffect(() => {
     const onPopState = () => {
-      const next = documentEditorRoute();
+      const next = documentEditorRoute(editorPlatform.kind);
+      setPath(routePath(editorPlatform.kind));
       setDocumentId(next);
       setProviderId(requestedEditorProvider());
       if (next) setActive("documents");
     };
     window.addEventListener("popstate", onPopState);
+    window.addEventListener("hashchange", onPopState);
     onPopState();
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("hashchange", onPopState);
+    };
+  }, [editorPlatform.kind]);
+
+  const navigate = (next: string) => {
+    if (editorPlatform.kind === "desktop") window.location.hash = next;
+    else window.history.pushState({}, "", next);
+    setPath(next);
+    const doc = next.match(/^\/documents\/([^/]+)\/edit/)?.[1];
+    setDocumentId(doc ? decodeURIComponent(doc) : undefined);
+  };
 
   const openDocument = (id: string, provider: EditorProviderId) => {
     const query = provider === "native" ? "" : `?provider=${encodeURIComponent(provider)}`;
-    window.history.pushState({}, "", `/documents/${encodeURIComponent(id)}/edit${query}`);
+    const next = `/documents/${encodeURIComponent(id)}/edit${query}`;
+    if (editorPlatform.kind === "desktop") window.location.hash = next;
+    else window.history.pushState({}, "", next);
+    setPath(next);
     setDocumentId(id);
     setProviderId(provider);
     setActive("documents");
@@ -189,7 +228,10 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
         <div className="flex items-center justify-between px-2 py-2 md:mb-7">
           <button
             type="button"
-            onClick={() => setActive("home")}
+            onClick={() => {
+              setActive("home");
+              navigate("/dashboard");
+            }}
             className="flex items-center border-0 bg-transparent p-0 text-ink"
           >
             <span className="mr-3 flex h-9 w-9 items-center justify-center rounded-xl bg-forest text-lg font-bold text-white">
@@ -202,6 +244,27 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
           </span>
         </div>
         <nav aria-label="Product navigation" className="flex gap-1 overflow-x-auto pb-1 md:block">
+          {session?.platformAdmin && (
+            <button
+              type="button"
+              onClick={() => navigate("/platform")}
+              aria-current={path === "/platform" ? "page" : undefined}
+              className={`flex min-w-max items-center rounded-xl border-0 px-3 py-2.5 text-sm transition md:mb-1 md:w-full ${path.startsWith("/platform") ? "bg-moss font-semibold text-forest" : "bg-transparent font-medium text-black/55 hover:bg-black/[0.035]"}`}
+            >
+              <Icon name="settings" className="mr-3 h-[18px] w-[18px]" />
+              Platform
+            </button>
+          )}
+          {session?.activeOrganizationId && (
+            <button
+              type="button"
+              onClick={() => navigate(`/organizations/${session.activeOrganizationId}/dashboard`)}
+              className={`flex min-w-max items-center rounded-xl border-0 px-3 py-2.5 text-sm transition md:mb-1 md:w-full ${path.startsWith("/organizations/") ? "bg-moss font-semibold text-forest" : "bg-transparent font-medium text-black/55 hover:bg-black/[0.035]"}`}
+            >
+              <Icon name="home" className="mr-3 h-[18px] w-[18px]" />
+              Organization
+            </button>
+          )}
           {navigation.map((item) => (
             <button
               key={item.id}
@@ -220,8 +283,10 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
             BS
           </span>
           <span>
-            <strong className="block text-xs">Basanta Shrestha</strong>
-            <span className="text-[11px] text-black/45">Documi workspace</span>
+            <strong className="block text-xs">{session?.user.displayName ?? "Documi user"}</strong>
+            <span className="text-[11px] text-black/45">
+              {session?.platformAdmin ? "Platform administrator" : "Organization member"}
+            </span>
           </span>
         </div>
       </aside>
@@ -237,7 +302,31 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
           </label>
         </header>
         <div className="mx-auto max-w-6xl p-5 md:p-10">
-          {active === "home" ? (
+          {sessionError ? (
+            <div
+              role="alert"
+              className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-800"
+            >
+              Unable to bootstrap session: {sessionError}
+            </div>
+          ) : path === "/platform" && editorPlatform.organizations ? (
+            <PlatformConsole gateway={editorPlatform.organizations} />
+          ) : path === "/platform/organizations" && editorPlatform.organizations ? (
+            <PlatformConsole gateway={editorPlatform.organizations} organizationsOnly />
+          ) : path.startsWith("/organizations/") && editorPlatform.organizations ? (
+            (() => {
+              const match = path.match(/^\/organizations\/([^/]+)\/([^/]+)/);
+              return match ? (
+                <OrganizationHome
+                  gateway={editorPlatform.organizations}
+                  organizationId={decodeURIComponent(match[1])}
+                  section={match[2]}
+                />
+              ) : null;
+            })()
+          ) : path === "/dashboard" && session ? (
+            <MemberHome session={session} />
+          ) : active === "home" ? (
             <Home onNewDocument={() => setActive("documents")} />
           ) : active === "documents" ? (
             <DocumentsFeature

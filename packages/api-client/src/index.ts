@@ -18,6 +18,12 @@ import type {
   AuditPage,
   EditorPolicy,
   DocumentFamily,
+  SessionContext,
+  OrganizationRecord,
+  OrganizationDashboard,
+  OrganizationInvitation,
+  ReportDefinition,
+  ReportRun,
 } from "@documi/shared-types";
 
 export interface ApiClientOptions {
@@ -53,6 +59,55 @@ export function createApiClient({
 
   return {
     systemInfo: () => request<SystemInfo>("/api/v1/system/info"),
+    sessionContext: () => request<SessionContext>("/api/v1/session-context"),
+    platformOrganizations: () =>
+      request<{ organizations: OrganizationRecord[] }>("/api/v1/platform/organizations"),
+    createOrganization: (name: string, ownerEmail: string) =>
+      request<{ organization: OrganizationRecord; ownerInvitation?: OrganizationInvitation }>(
+        "/api/v1/platform/organizations",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+          body: JSON.stringify({ name, ownerEmail }),
+        },
+      ),
+    updateOrganization: (
+      id: string,
+      value: { status?: "active" | "suspended"; shareDocumentTitlesWithPlatformAdmins?: boolean },
+    ) =>
+      request<OrganizationRecord>(`/api/v1/platform/organizations/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value),
+      }),
+    platformDashboard: () => request<OrganizationDashboard>("/api/v1/platform/dashboard"),
+    organizationDashboard: (id: string) =>
+      request<OrganizationDashboard>(`/api/v1/organizations/${encodeURIComponent(id)}/dashboard`),
+    reportDefinitions: () =>
+      request<{ definitions: ReportDefinition[] }>("/api/v1/report-definitions"),
+    reportRuns: (organizationId: string) =>
+      request<{ runs: ReportRun[] }>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/report-runs`,
+      ),
+    createReportRun: (
+      organizationId: string,
+      definitionId: ReportRun["definitionId"],
+      format: ReportRun["format"],
+      filters: Record<string, string>,
+    ) =>
+      request<ReportRun>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/report-runs`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+          body: JSON.stringify({ definitionId, format, filters }),
+        },
+      ),
+    exportReport: (runId: string) =>
+      request<ReportRun>(`/api/v1/report-runs/${encodeURIComponent(runId)}/exports`, {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+      }),
     documentEditors: () => request<EditorProviderList>("/api/v1/document-editors"),
     workspaces: () => request<{ workspaces: Workspace[] }>("/api/v1/workspaces"),
     documentEditorStatus: (provider: EditorProviderId) =>
@@ -248,6 +303,22 @@ export function createServerDocumentGateway(options: ApiClientOptions) {
     get: client.getDocument,
     saveNative: client.saveNativeDocument,
     versions: async (documentId: string) => (await client.documentVersions(documentId)).versions,
+  };
+}
+
+export function createServerOrganizationGateway(options: ApiClientOptions) {
+  const client = createApiClient(options);
+  return {
+    session: client.sessionContext,
+    platformOrganizations: async () => (await client.platformOrganizations()).organizations,
+    createOrganization: client.createOrganization,
+    updateOrganization: client.updateOrganization,
+    platformDashboard: client.platformDashboard,
+    organizationDashboard: client.organizationDashboard,
+    reportDefinitions: async () => (await client.reportDefinitions()).definitions,
+    reportRuns: async (organizationId: string) => (await client.reportRuns(organizationId)).runs,
+    createReportRun: client.createReportRun,
+    exportReport: client.exportReport,
   };
 }
 
