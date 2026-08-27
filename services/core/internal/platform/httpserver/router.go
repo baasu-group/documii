@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/documi/documi/services/core/internal/modules/documents"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
 	"github.com/documi/documi/services/core/internal/modules/system"
@@ -26,6 +27,7 @@ type Routes struct {
 	WOPI          *collabora.Handler
 	Authenticator platformauth.Authenticator
 	AuthConfig    map[string]any
+	Documents     *documents.Handler
 }
 
 func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Handler {
@@ -56,6 +58,19 @@ func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Han
 		} else {
 			mux.HandleFunc("POST /api/v1/documents/{id}/editor-session", routes.Editors.CreateSession)
 		}
+	}
+	if routes.Documents != nil && routes.Authenticator != nil {
+		protected := func(handler http.HandlerFunc) http.Handler {
+			return platformauth.Middleware(routes.Authenticator, handler)
+		}
+		mux.Handle("GET /api/v1/workspaces", protected(routes.Documents.Workspaces))
+		mux.Handle("GET /api/v1/workspaces/{workspaceId}/documents", protected(routes.Documents.Documents))
+		mux.Handle("POST /api/v1/workspaces/{workspaceId}/documents", protected(routes.Documents.Documents))
+		mux.Handle("GET /api/v1/documents/{id}", protected(routes.Documents.Document))
+		mux.Handle("GET /api/v1/documents/{id}/content", protected(routes.Documents.Content))
+		mux.Handle("GET /api/v1/documents/{id}/download", protected(routes.Documents.Download))
+		mux.Handle("GET /api/v1/documents/{id}/versions", protected(routes.Documents.Versions))
+		mux.Handle("POST /api/v1/documents/{id}/versions", protected(routes.Documents.Versions))
 	}
 	if routes.WOPI != nil {
 		mux.HandleFunc("GET /api/v1/wopi/files/{id}", routes.WOPI.CheckFileInfo)

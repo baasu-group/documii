@@ -8,6 +8,7 @@ import type {
   DocumentVersion,
   SaveNativeDocumentRequest,
   SystemInfo,
+  Workspace,
 } from "@documi/shared-types";
 
 export interface ApiClientOptions {
@@ -16,13 +17,19 @@ export interface ApiClientOptions {
   accessToken?: () => string | undefined | Promise<string | undefined>;
 }
 
+let defaultAccessToken: ApiClientOptions["accessToken"];
+
+export function setDefaultAccessTokenProvider(provider: ApiClientOptions["accessToken"]) {
+  defaultAccessToken = provider;
+}
+
 export function createApiClient({
   baseUrl,
   fetch: fetchImpl = globalThis.fetch,
   accessToken,
 }: ApiClientOptions) {
   const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-    const token = await accessToken?.();
+    const token = await (accessToken ?? defaultAccessToken)?.();
     const headers = new Headers(init?.headers);
     if (token) headers.set("Authorization", `Bearer ${token}`);
     const response = await fetchImpl(new URL(path, baseUrl), { ...init, headers });
@@ -37,6 +44,7 @@ export function createApiClient({
   return {
     systemInfo: () => request<SystemInfo>("/api/v1/system/info"),
     documentEditors: () => request<EditorProviderList>("/api/v1/document-editors"),
+    workspaces: () => request<{ workspaces: Workspace[] }>("/api/v1/workspaces"),
     documentEditorStatus: (provider: EditorProviderId) =>
       request<EditorProviderStatus>(
         `/api/v1/document-editors/${encodeURIComponent(provider)}/status`,
@@ -79,5 +87,22 @@ export function createApiClient({
       request<{ versions: DocumentVersion[] }>(
         `/api/v1/documents/${encodeURIComponent(documentId)}/versions`,
       ),
+  };
+}
+
+export function createServerDocumentGateway(options: ApiClientOptions) {
+  const client = createApiClient(options);
+  return {
+    initializeWorkspace: async () => {
+      const { workspaces } = await client.workspaces();
+      const workspace = workspaces[0];
+      if (!workspace) throw new Error("no_authorized_workspace");
+      return workspace;
+    },
+    list: async (workspaceId: string) => (await client.listDocuments(workspaceId)).documents,
+    createNative: client.createNativeDocument,
+    get: client.getDocument,
+    saveNative: client.saveNativeDocument,
+    versions: async (documentId: string) => (await client.documentVersions(documentId)).versions,
   };
 }

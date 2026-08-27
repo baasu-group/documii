@@ -24,7 +24,7 @@ type Config struct {
 	PublicURL         string
 }
 
-type AuthConfig struct{ Mode, Issuer, Audience, ClientID, DevelopmentSubject, DevelopmentEmail, DevelopmentName string }
+type AuthConfig struct{ Mode, Issuer, DiscoveryURL, Audience, ClientID, DevelopmentSubject, DevelopmentEmail, DevelopmentName string }
 
 type EditorConfig struct {
 	TokenSecret         string
@@ -37,6 +37,11 @@ type EditorConfig struct {
 }
 
 func Load() (Config, error) {
+	environment := envOrDefault("DOCUMI_ENV", "development")
+	authMode := "oidc"
+	if environment == "development" || environment == "test" {
+		authMode = "development"
+	}
 	airGapped, err := strconv.ParseBool(envOrDefault("AIR_GAPPED", "false"))
 	if err != nil {
 		return Config{}, fmt.Errorf("parse AIR_GAPPED: %w", err)
@@ -52,7 +57,7 @@ func Load() (Config, error) {
 	}
 
 	config := Config{
-		Environment:       envOrDefault("DOCUMI_ENV", "development"),
+		Environment:       environment,
 		HTTPAddress:       envOrDefault("DOCUMI_HTTP_ADDRESS", ":8080"),
 		LogLevel:          envOrDefault("DOCUMI_LOG_LEVEL", "info"),
 		DatabaseURL:       os.Getenv("DOCUMI_DATABASE_URL"),
@@ -62,7 +67,7 @@ func Load() (Config, error) {
 		AirGapped:         airGapped,
 		ShutdownTimeout:   10 * time.Second,
 		PublicURL:         envOrDefault("DOCUMI_PUBLIC_URL", "http://localhost:8080"),
-		Auth:              AuthConfig{Mode: envOrDefault("DOCUMI_AUTH_MODE", "development"), Issuer: os.Getenv("DOCUMI_OIDC_ISSUER"), Audience: envOrDefault("DOCUMI_OIDC_AUDIENCE", "documi-api"), ClientID: envOrDefault("DOCUMI_OIDC_CLIENT_ID", "documi-web"), DevelopmentSubject: envOrDefault("DOCUMI_DEV_SUBJECT", "local-admin"), DevelopmentEmail: envOrDefault("DOCUMI_DEV_EMAIL", "admin@documi.local"), DevelopmentName: envOrDefault("DOCUMI_DEV_NAME", "Local administrator")},
+		Auth:              AuthConfig{Mode: envOrDefault("DOCUMI_AUTH_MODE", authMode), Issuer: os.Getenv("DOCUMI_OIDC_ISSUER"), DiscoveryURL: os.Getenv("DOCUMI_OIDC_DISCOVERY_URL"), Audience: envOrDefault("DOCUMI_OIDC_AUDIENCE", "documi-api"), ClientID: envOrDefault("DOCUMI_OIDC_CLIENT_ID", "documi-web"), DevelopmentSubject: envOrDefault("DOCUMI_DEV_SUBJECT", "local-admin"), DevelopmentEmail: envOrDefault("DOCUMI_DEV_EMAIL", "admin@documi.local"), DevelopmentName: envOrDefault("DOCUMI_DEV_NAME", "Local administrator")},
 		Editors: EditorConfig{
 			TokenSecret:         os.Getenv("DOCUMI_EDITOR_TOKEN_SECRET"),
 			CollaboraEnabled:    collaboraEnabled,
@@ -99,6 +104,8 @@ func Load() (Config, error) {
 		if config.Auth.Audience == "" {
 			return Config{}, fmt.Errorf("DOCUMI_OIDC_AUDIENCE is required")
 		}
+		if config.Auth.DiscoveryURL == "" { config.Auth.DiscoveryURL = config.Auth.Issuer }
+		if err := requireHTTPURL("DOCUMI_OIDC_DISCOVERY_URL", config.Auth.DiscoveryURL); err != nil { return Config{}, err }
 	}
 	return config, nil
 }

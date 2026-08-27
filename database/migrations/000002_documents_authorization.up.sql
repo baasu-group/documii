@@ -43,6 +43,36 @@ CREATE TABLE authorization_grants (
          (scope_type='folder' AND workspace_id IS NOT NULL AND folder_id IS NOT NULL AND document_id IS NULL) OR
          (scope_type='document' AND workspace_id IS NOT NULL AND document_id IS NOT NULL))
 );
+CREATE FUNCTION validate_authorization_grant() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.group_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM groups WHERE id=NEW.group_id AND organization_id=NEW.organization_id) THEN
+    RAISE EXCEPTION 'grant group must belong to the same organization';
+  END IF;
+  IF NEW.workspace_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM workspaces WHERE id=NEW.workspace_id AND organization_id=NEW.organization_id) THEN
+    RAISE EXCEPTION 'grant workspace must belong to the same organization';
+  END IF;
+  IF NEW.folder_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM folders WHERE id=NEW.folder_id AND workspace_id=NEW.workspace_id AND organization_id=NEW.organization_id) THEN
+    RAISE EXCEPTION 'grant folder must belong to the same workspace and organization';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER authorization_grants_validate BEFORE INSERT OR UPDATE ON authorization_grants FOR EACH ROW EXECUTE FUNCTION validate_authorization_grant();
+
+CREATE FUNCTION protect_last_organization_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE removing_owner boolean := false;
+BEGIN
+  IF OLD.scope_type='organization' AND OLD.role='owner' THEN
+    IF TG_OP='DELETE' THEN removing_owner := true;
+    ELSE removing_owner := NEW.scope_type<>'organization' OR NEW.role<>'owner' OR NEW.organization_id<>OLD.organization_id;
+    END IF;
+  END IF;
+  IF removing_owner AND NOT EXISTS (SELECT 1 FROM authorization_grants WHERE organization_id=OLD.organization_id AND scope_type='organization' AND role='owner' AND id<>OLD.id) THEN
+    RAISE EXCEPTION 'cannot remove the last organization owner';
+  END IF;
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER authorization_grants_protect_owner BEFORE DELETE OR UPDATE ON authorization_grants FOR EACH ROW EXECUTE FUNCTION protect_last_organization_owner();
 CREATE TABLE storage_objects (
   id uuid PRIMARY KEY, provider text NOT NULL, storage_key text NOT NULL UNIQUE, sha256 text NOT NULL CHECK(length(sha256)=64),
   size bigint NOT NULL CHECK(size>=0), content_type text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
@@ -65,12 +95,36 @@ BEGIN
 END $$;
 CREATE TRIGGER documents_validate_folder BEFORE INSERT OR UPDATE OF folder_id,workspace_id,organization_id ON documents FOR EACH ROW EXECUTE FUNCTION validate_document_folder();
 ALTER TABLE authorization_grants ADD CONSTRAINT authorization_grants_document_fk FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE;
+CREATE FUNCTION validate_document_grant() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.document_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM documents WHERE id=NEW.document_id AND workspace_id=NEW.workspace_id AND organization_id=NEW.organization_id) THEN
+    RAISE EXCEPTION 'grant document must belong to the same workspace and organization';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER authorization_grants_validate_document BEFORE INSERT OR UPDATE OF document_id,workspace_id,organization_id ON authorization_grants FOR EACH ROW EXECUTE FUNCTION validate_document_grant();
 CREATE TABLE document_versions (
   id uuid PRIMARY KEY, document_id uuid NOT NULL REFERENCES documents(id) ON DELETE CASCADE, parent_version_id uuid REFERENCES document_versions(id),
   storage_object_id uuid NOT NULL REFERENCES storage_objects(id), version_number bigint NOT NULL CHECK(version_number>0), created_by uuid NOT NULL REFERENCES users(id),
   created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(document_id,version_number)
 );
+CREATE FUNCTION validate_document_version_parent() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.parent_version_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM document_versions WHERE id=NEW.parent_version_id AND document_id=NEW.document_id) THEN
+    RAISE EXCEPTION 'parent version must belong to the same document';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER document_versions_validate_parent BEFORE INSERT OR UPDATE ON document_versions FOR EACH ROW EXECUTE FUNCTION validate_document_version_parent();
 ALTER TABLE documents ADD CONSTRAINT documents_current_version_fk FOREIGN KEY(current_version_id) REFERENCES document_versions(id);
+CREATE FUNCTION validate_document_current_version() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.current_version_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM document_versions WHERE id=NEW.current_version_id AND document_id=NEW.id) THEN
+    RAISE EXCEPTION 'current version must belong to the document';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER documents_validate_current_version BEFORE UPDATE OF current_version_id ON documents FOR EACH ROW EXECUTE FUNCTION validate_document_current_version();
 CREATE TABLE document_editor_policies (organization_id uuid NOT NULL REFERENCES organizations(id), family text NOT NULL, provider_id text NOT NULL, updated_by uuid NOT NULL REFERENCES users(id), updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(organization_id,family));
 CREATE TABLE audit_events (
   id text PRIMARY KEY CHECK(id LIKE 'evt_%'), event_type text NOT NULL, organization_id uuid NOT NULL REFERENCES organizations(id), workspace_id uuid REFERENCES workspaces(id), actor_id uuid REFERENCES users(id), resource_id uuid, request_id text, data jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now()

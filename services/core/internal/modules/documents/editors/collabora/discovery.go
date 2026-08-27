@@ -60,6 +60,15 @@ func (discovery *Discovery) Action(ctx context.Context, extension, mode string) 
 	}
 	return value, nil
 }
+
+func (discovery *Discovery) Healthy(ctx context.Context) error {
+	discovery.mu.Lock()
+	defer discovery.mu.Unlock()
+	if time.Now().Before(discovery.expires) && len(discovery.actions) > 0 {
+		return nil
+	}
+	return discovery.refresh(ctx)
+}
 func (discovery *Discovery) refresh(ctx context.Context) error {
 	endpoint := discovery.base.ResolveReference(&url.URL{Path: "/hosting/discovery"})
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)

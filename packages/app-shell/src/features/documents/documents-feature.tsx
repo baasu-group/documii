@@ -25,13 +25,15 @@ export function DocumentsFeature({
   providerId = "native",
   onOpenNative,
   gateway,
+  localOnly = false,
 }: {
   documentId?: string;
   providerId?: EditorProviderId;
   onOpenNative: (documentId: string) => void;
   gateway?: DocumentGateway;
+  localOnly?: boolean;
 }) {
-  const { providers, error: providerError } = useEditorProviders(Boolean(gateway));
+  const { providers, error: providerError } = useEditorProviders(localOnly);
   const [workspace, setWorkspace] = useState<Workspace>();
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [record, setRecord] = useState<DocumentRecord>();

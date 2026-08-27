@@ -62,7 +62,14 @@ func (handler *Handler) CreateSession(writer http.ResponseWriter, request *http.
 		RequestedEdit: payload.RequestedEdit,
 	})
 	if err != nil {
-		writeEditorJSON(writer, http.StatusNotImplemented, map[string]string{"error": "editor_sessions_not_available"})
+		switch {
+		case errors.Is(err, ErrSessionForbidden):
+			writeEditorJSON(writer, http.StatusNotFound, map[string]string{"error": "document_not_found"})
+		case errors.Is(err, ErrProviderUnavailable), errors.Is(err, ErrOperationDeferred):
+			writeEditorJSON(writer, http.StatusServiceUnavailable, map[string]string{"error": "editor_sessions_not_available"})
+		default:
+			writeEditorJSON(writer, http.StatusBadGateway, map[string]string{"error": "editor_session_failed"})
+		}
 		return
 	}
 	writeEditorJSON(writer, http.StatusCreated, session)

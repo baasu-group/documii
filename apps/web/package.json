@@ -11,8 +11,10 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@documi/api-client": "workspace:*",
     "@documi/app-shell": "workspace:*",
     "@documi/ui": "workspace:*",
+    "oidc-client-ts": "3.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

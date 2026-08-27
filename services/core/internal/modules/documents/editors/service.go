@@ -2,8 +2,11 @@ package editors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+var ErrSessionForbidden = errors.New("editor session forbidden")
 
 type Service struct {
 	registry *Registry
@@ -50,12 +53,13 @@ type SessionRequest struct {
 }
 
 type Session struct {
-	ProviderID  ProviderID `json:"providerId"`
-	Mode        string     `json:"mode"`
-	URL         string     `json:"url,omitempty"`
-	AccessToken string     `json:"accessToken,omitempty"`
-	ExpiresAt   string     `json:"expiresAt,omitempty"`
-	ReadOnly    bool       `json:"readOnly"`
+	ProviderID     ProviderID `json:"providerId"`
+	Mode           string     `json:"mode"`
+	URL            string     `json:"url,omitempty"`
+	AccessToken    string     `json:"accessToken,omitempty"`
+	ExpiresAt      string     `json:"expiresAt,omitempty"`
+	ReadOnly       bool       `json:"readOnly"`
+	AccessTokenTtl int64      `json:"accessTokenTtl,omitempty"`
 }
 
 type SessionService interface {

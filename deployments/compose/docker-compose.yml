@@ -59,6 +59,8 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_dev_only}
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     ports:
       - "8081:8080"
     volumes:
@@ -83,7 +85,9 @@ services:
       DOCUMI_HTTP_ADDRESS: :8080
       DOCUMI_DATABASE_URL: postgres://${POSTGRES_USER:-documi}:${POSTGRES_PASSWORD:-documi_dev_only}@postgres:5432/${POSTGRES_DB:-documi}?sslmode=disable
       DOCUMI_TEMPORAL_ADDRESS: temporal:7233
-      DOCUMI_OIDC_ISSUER: http://keycloak:8080/realms/documi
+      DOCUMI_OIDC_ISSUER: http://localhost:8081/realms/documi
+      DOCUMI_OIDC_DISCOVERY_URL: http://keycloak:8080/realms/documi
+      DOCUMI_PUBLIC_URL: http://api:8080
       DOCUMI_STORAGE_ROOT: /var/lib/documi/storage
       AIR_GAPPED: ${AIR_GAPPED:-false}
       DOCUMI_EDITOR_TOKEN_SECRET: ${DOCUMI_EDITOR_TOKEN_SECRET:-replace-with-at-least-32-random-characters}

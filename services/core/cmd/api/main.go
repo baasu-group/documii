@@ -9,14 +9,18 @@ import (
 	"os"
 	"time"
 
+	"github.com/documi/documi/services/core/internal/modules/documents"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
+	"github.com/documi/documi/services/core/internal/modules/permissions"
+	"github.com/documi/documi/services/core/internal/modules/storage"
 	"github.com/documi/documi/services/core/internal/modules/system"
 	platformauth "github.com/documi/documi/services/core/internal/platform/auth"
 	"github.com/documi/documi/services/core/internal/platform/config"
 	"github.com/documi/documi/services/core/internal/platform/httpserver"
 	"github.com/documi/documi/services/core/internal/platform/logging"
 	"github.com/documi/documi/services/core/internal/platform/shutdown"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var version = "dev"
@@ -34,7 +38,7 @@ func main() {
 	systemService := system.NewService(version, configValue.Environment, configValue.AirGapped)
 	var authenticator platformauth.Authenticator
 	if configValue.Auth.Mode == "oidc" {
-		value, err := platformauth.NewOIDCAuthenticator(ctx, configValue.Auth.Issuer, configValue.Auth.Audience)
+		value, err := platformauth.NewOIDCAuthenticator(ctx, configValue.Auth.Issuer, configValue.Auth.DiscoveryURL, configValue.Auth.Audience)
 		if err != nil {
 			logger.Error("configure OIDC", "error", err)
 			os.Exit(1)
@@ -43,20 +47,30 @@ func main() {
 	} else {
 		authenticator = platformauth.DevelopmentAuthenticator{Subject: platformauth.Subject{ID: configValue.Auth.DevelopmentSubject, Issuer: "documi-development", ExternalSubject: configValue.Auth.DevelopmentSubject, Email: configValue.Auth.DevelopmentEmail, DisplayName: configValue.Auth.DevelopmentName}}
 	}
-	editorProviders := editors.DefaultProviders(editors.ProviderConfiguration{
-		AirGapped:                   configValue.AirGapped,
-		CollaboraEnabled:            configValue.Editors.CollaboraEnabled,
-		CollaboraUnavailableReason:  "document_service_unavailable",
-		OnlyOfficeEnabled:           configValue.Editors.OnlyOfficeEnabled,
-		OnlyOfficeUnavailableReason: "document_service_unavailable",
-	})
-	editorRegistry, err := editors.NewRegistry(editorProviders...)
-	if err != nil {
-		logger.Error("register document editor providers", "error", err)
-		os.Exit(1)
+	var documentHandler *documents.Handler
+	var documentService *documents.Service
+	var databasePool *pgxpool.Pool
+	if configValue.DatabaseURL != "" {
+		databasePool, err = pgxpool.New(ctx, configValue.DatabaseURL)
+		if err != nil {
+			logger.Error("configure PostgreSQL", "error", err)
+			os.Exit(1)
+		}
+		defer databasePool.Close()
+		if err := databasePool.Ping(ctx); err != nil {
+			logger.Error("connect PostgreSQL", "error", err)
+			os.Exit(1)
+		}
+		authenticator = platformauth.NewPersistentAuthenticator(authenticator, databasePool)
+		filesystem, err := storage.NewFilesystem(configValue.StorageRoot, documents.MaxDocumentBytes)
+		if err != nil {
+			logger.Error("configure document storage", "error", err)
+			os.Exit(1)
+		}
+		authorizer := permissions.NewAuthorizer(databasePool)
+		documentService = documents.NewService(databasePool, filesystem, authorizer)
+		documentHandler = documents.NewHandler(documentService)
 	}
-	editorService := editors.NewService(editorRegistry, editors.NewResolver(editorRegistry, editors.DefaultPolicy()))
-	editorHandler := editors.NewHandler(editorService, editors.UnavailableSessionService{})
 
 	editorTokenSecret := []byte(configValue.Editors.TokenSecret)
 	if len(editorTokenSecret) < 32 {
@@ -71,11 +85,50 @@ func main() {
 		logger.Error("configure WOPI token service", "error", err)
 		os.Exit(1)
 	}
-	wopiHandler, err := collabora.NewHandler(tokenService, collabora.UnavailableGateway{}, 100<<20)
+	var sessionService editors.SessionService = editors.UnavailableSessionService{}
+	var wopiGateway collabora.DocumentGateway = collabora.UnavailableGateway{}
+	collaboraReady := false
+	collaboraReason := "document_service_unavailable"
+	if configValue.Editors.CollaboraEnabled && documentService != nil {
+		discovery, discoveryErr := collabora.NewDiscovery(configValue.Editors.CollaboraURL)
+		if discoveryErr == nil {
+			discoveryErr = discovery.Healthy(ctx)
+		}
+		if discoveryErr != nil {
+			collaboraReason = "discovery_unavailable"
+			logger.Warn("Collabora discovery unavailable", "error", discoveryErr)
+		} else {
+			persistentSessions, sessionErr := collabora.NewPersistentSessionService(databasePool, documentService, tokenService, discovery, configValue.PublicURL, configValue.Editors.CollaboraPublicURL)
+			if sessionErr != nil {
+				logger.Error("configure Collabora sessions", "error", sessionErr)
+				os.Exit(1)
+			}
+			sessionService = persistentSessions
+			wopiGateway = collabora.NewPersistentGateway(documentService)
+			collaboraReady = true
+			collaboraReason = ""
+		}
+	}
+	wopiHandler, err := collabora.NewHandler(tokenService, wopiGateway, documents.MaxDocumentBytes)
 	if err != nil {
 		logger.Error("configure WOPI host", "error", err)
 		os.Exit(1)
 	}
+	editorProviders := editors.DefaultProviders(editors.ProviderConfiguration{
+		AirGapped:                   configValue.AirGapped,
+		CollaboraEnabled:            configValue.Editors.CollaboraEnabled,
+		CollaboraReady:              collaboraReady,
+		CollaboraUnavailableReason:  collaboraReason,
+		OnlyOfficeEnabled:           configValue.Editors.OnlyOfficeEnabled,
+		OnlyOfficeUnavailableReason: "document_service_unavailable",
+	})
+	editorRegistry, err := editors.NewRegistry(editorProviders...)
+	if err != nil {
+		logger.Error("register document editor providers", "error", err)
+		os.Exit(1)
+	}
+	editorService := editors.NewService(editorRegistry, editors.NewResolver(editorRegistry, editors.DefaultPolicy()))
+	editorHandler := editors.NewHandler(editorService, sessionService)
 
 	server := &http.Server{
 		Addr: configValue.HTTPAddress,
@@ -85,6 +138,7 @@ func main() {
 			WOPI:          wopiHandler,
 			Authenticator: authenticator,
 			AuthConfig:    map[string]any{"mode": configValue.Auth.Mode, "issuer": configValue.Auth.Issuer, "audience": configValue.Auth.Audience, "clientId": configValue.Auth.ClientID},
+			Documents:     documentHandler,
 		}, httpserver.StaticReadiness(true)),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,

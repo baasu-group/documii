@@ -39,7 +39,7 @@ func TestSessionHandlerFailsClosedWithoutDocumentsService(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.CreateSession(response, request)
 
-	if response.Code != http.StatusNotImplemented || !strings.Contains(response.Body.String(), "editor_sessions_not_available") {
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "editor_sessions_not_available") {
 		t.Fatalf("CreateSession() = %d %s", response.Code, response.Body.String())
 	}
 }

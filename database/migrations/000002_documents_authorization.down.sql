@@ -4,4 +4,9 @@ DROP TABLE IF EXISTS documents, storage_objects, authorization_grants, group_mem
 DROP FUNCTION IF EXISTS reject_audit_mutation();
 DROP FUNCTION IF EXISTS validate_document_folder();
 DROP FUNCTION IF EXISTS validate_folder_hierarchy();
+DROP FUNCTION IF EXISTS validate_authorization_grant();
+DROP FUNCTION IF EXISTS protect_last_organization_owner();
+DROP FUNCTION IF EXISTS validate_document_version_parent();
+DROP FUNCTION IF EXISTS validate_document_current_version();
+DROP FUNCTION IF EXISTS validate_document_grant();
 DROP TYPE IF EXISTS principal_type, authorization_scope, authorization_role;
