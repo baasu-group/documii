@@ -1,25 +1,31 @@
-import { createApiClient } from "@documi/api-client";
 import type { EditorProviderId, EditorSession } from "@documi/shared-types";
 import { useEffect, useRef, useState } from "react";
+
+import type { DocumentGateway } from "./editor-platform";
 
 export function OfficeEditorContainer({
   documentId,
   providerId,
+  gateway,
 }: {
   documentId: string;
   providerId: EditorProviderId;
+  gateway?: DocumentGateway;
 }) {
   const [session, setSession] = useState<EditorSession>();
   const [error, setError] = useState<string>();
   const form = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
-    const client = createApiClient({ baseUrl: window.location.origin });
-    client
+    if (!gateway?.createEditorSession) {
+      setError("This workspace cannot create provider sessions.");
+      return;
+    }
+    gateway
       .createEditorSession(documentId, providerId, true)
       .then(setSession)
       .catch(() => setError("An authorized editor session could not be created."));
-  }, [documentId, providerId]);
+  }, [documentId, gateway, providerId]);
 
   useEffect(() => {
     if (session?.mode === "iframe" && session.accessToken) form.current?.submit();
@@ -72,3 +78,4 @@ export function OfficeEditorContainer({
     </div>
   );
 }
+import type { DocumentGateway } from "./editor-platform";

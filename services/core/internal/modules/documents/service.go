@@ -68,9 +68,10 @@ type Version struct {
 }
 
 type Workspace struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Mode string `json:"mode"`
+	ID             string `json:"id"`
+	OrganizationID string `json:"organizationId"`
+	Name           string `json:"name"`
+	Mode           string `json:"mode"`
 }
 
 type CreateRequest struct {
@@ -88,18 +89,31 @@ type Service struct {
 	pool       *pgxpool.Pool
 	storage    storage.Provider
 	authorizer *permissions.Authorizer
+	editors    EditorSelector
+}
+
+type EditorSelector interface {
+	Select(context.Context, string, string) (string, error)
+}
+
+type EditorSelectorFunc func(context.Context, string, string) (string, error)
+
+func (function EditorSelectorFunc) Select(ctx context.Context, organizationID, family string) (string, error) {
+	return function(ctx, organizationID, family)
 }
 
 func NewService(pool *pgxpool.Pool, provider storage.Provider, authorizer *permissions.Authorizer) *Service {
 	return &Service{pool: pool, storage: provider, authorizer: authorizer}
 }
 
+func (service *Service) SetEditorSelector(selector EditorSelector) { service.editors = selector }
+
 func (service *Service) Workspaces(ctx context.Context, actorID string) ([]Workspace, error) {
 	actor, err := uuid.Parse(actorID)
 	if err != nil {
 		return nil, ErrForbidden
 	}
-	rows, err := service.pool.Query(ctx, `SELECT DISTINCT w.id,w.name FROM workspaces w
+	rows, err := service.pool.Query(ctx, `SELECT DISTINCT w.id,w.organization_id,w.name FROM workspaces w
 JOIN authorization_grants g ON g.organization_id=w.organization_id
 WHERE (g.user_id=$1 OR g.group_id IN (SELECT group_id FROM group_members WHERE user_id=$1))
 AND (g.scope_type='organization' OR g.workspace_id=w.id)
@@ -112,7 +126,7 @@ ORDER BY w.name,w.id`, actor)
 	for rows.Next() {
 		var value Workspace
 		value.Mode = "server"
-		if err := rows.Scan(&value.ID, &value.Name); err != nil {
+		if err := rows.Scan(&value.ID, &value.OrganizationID, &value.Name); err != nil {
 			return nil, err
 		}
 		result = append(result, value)

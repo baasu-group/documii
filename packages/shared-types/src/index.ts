@@ -128,6 +128,7 @@ export interface AuthorizationGrant {
   scopeType: "organization" | "workspace" | "folder" | "document";
   scopeId: string;
   role: AuthorizationRole;
+  createdAt: string;
 }
 
 export interface AuditEvent {
@@ -135,8 +136,44 @@ export interface AuditEvent {
   type: string;
   organizationId?: string;
   workspaceId: string;
-  actorId: string;
-  resourceId: string;
+  actorId?: string;
+  resourceId?: string;
+  requestId?: string;
   timestamp: string;
   data: Record<string, unknown>;
+}
+
+export interface FolderRecord {
+  id: string;
+  organizationId: string;
+  workspaceId: string;
+  parentId?: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroupRecord {
+  id: string;
+  organizationId: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface GroupMember {
+  id: string;
+  displayName: string;
+  email?: string;
+}
+
+export interface EditorPolicy {
+  organizationId: string;
+  family: DocumentFamily;
+  providerId: EditorProviderId;
+  updatedAt: string;
+}
+
+export interface AuditPage {
+  events: AuditEvent[];
+  nextCursor?: string;
 }

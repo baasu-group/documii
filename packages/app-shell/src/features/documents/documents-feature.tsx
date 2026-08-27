@@ -66,7 +66,9 @@ export function DocumentsFeature({
   }, [documentId, gateway, providerId]);
 
   if (documentId && providerId !== "native")
-    return <OfficeEditorContainer documentId={documentId} providerId={providerId} />;
+    return (
+      <OfficeEditorContainer documentId={documentId} providerId={providerId} gateway={gateway} />
+    );
   if (documentId)
     return (
       <section>
@@ -167,6 +169,29 @@ export function DocumentsFeature({
       <NewDocumentMenu
         providers={providers.length ? providers : [...fallbackProviders]}
         onCreateNative={createNative}
+        onCreateOffice={
+          gateway?.createOffice && workspace
+            ? async (family) => {
+                try {
+                  const labels = {
+                    text: "Untitled text document",
+                    spreadsheet: "Untitled spreadsheet",
+                    presentation: "Untitled presentation",
+                  };
+                  const created = await gateway.createOffice!(
+                    workspace.id,
+                    family,
+                    labels[family],
+                    mutationKey(),
+                  );
+                  setDocuments((current) => [created, ...current]);
+                  onOpenDocument(created.id, created.editorProvider);
+                } catch (reason) {
+                  setError(reason instanceof Error ? reason.message : "office_create_failed");
+                }
+              }
+            : undefined
+        }
         onUpload={
           gateway?.uploadOffice && workspace
             ? async (file) => {

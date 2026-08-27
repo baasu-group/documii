@@ -45,6 +45,14 @@ func (service *Service) Resolve(ctx context.Context, family DocumentFamily, requ
 	return service.Provider(ctx, provider.ID())
 }
 
+func (service *Service) ResolveForOrganization(ctx context.Context, organizationID string, family DocumentFamily, required ...Capability) (Status, error) {
+	provider, err := service.resolver.ResolveForOrganization(ctx, organizationID, family, required...)
+	if err != nil {
+		return Status{}, err
+	}
+	return service.Provider(ctx, provider.ID())
+}
+
 type SessionRequest struct {
 	ActorID       string
 	DocumentID    string

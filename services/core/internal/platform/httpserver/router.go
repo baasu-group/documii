@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/documi/documi/services/core/internal/modules/administration"
 	"github.com/documi/documi/services/core/internal/modules/documents"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
@@ -26,12 +27,13 @@ type ReadinessFunc func() bool
 func (readiness ReadinessFunc) Ready() bool { return readiness() }
 
 type Routes struct {
-	System        *system.Handler
-	Editors       *editors.Handler
-	WOPI          *collabora.Handler
-	Authenticator platformauth.Authenticator
-	AuthConfig    map[string]any
-	Documents     *documents.Handler
+	System         *system.Handler
+	Editors        *editors.Handler
+	WOPI           *collabora.Handler
+	Authenticator  platformauth.Authenticator
+	AuthConfig     map[string]any
+	Documents      *documents.Handler
+	Administration *administration.Handler
 }
 
 func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Handler {
@@ -76,6 +78,28 @@ func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Han
 		mux.Handle("GET /api/v1/documents/{id}/download", protected(routes.Documents.Download))
 		mux.Handle("GET /api/v1/documents/{id}/versions", protected(routes.Documents.Versions))
 		mux.Handle("POST /api/v1/documents/{id}/versions", protected(routes.Documents.Versions))
+	}
+	if routes.Administration != nil && routes.Authenticator != nil {
+		protected := func(handler http.HandlerFunc) http.Handler {
+			return platformauth.Middleware(routes.Authenticator, handler)
+		}
+		mux.Handle("GET /api/v1/workspaces/{workspaceId}/folders", protected(routes.Administration.Folders))
+		mux.Handle("POST /api/v1/workspaces/{workspaceId}/folders", protected(routes.Administration.Folders))
+		mux.Handle("PATCH /api/v1/folders/{id}", protected(routes.Administration.Folder))
+		mux.Handle("DELETE /api/v1/folders/{id}", protected(routes.Administration.Folder))
+		mux.Handle("GET /api/v1/organizations/{organizationId}/groups", protected(routes.Administration.Groups))
+		mux.Handle("POST /api/v1/organizations/{organizationId}/groups", protected(routes.Administration.Groups))
+		mux.Handle("DELETE /api/v1/groups/{id}", protected(routes.Administration.Group))
+		mux.Handle("GET /api/v1/groups/{groupId}/members", protected(routes.Administration.Members))
+		mux.Handle("POST /api/v1/groups/{groupId}/members", protected(routes.Administration.Members))
+		mux.Handle("DELETE /api/v1/groups/{groupId}/members/{userId}", protected(routes.Administration.Member))
+		mux.Handle("GET /api/v1/organizations/{organizationId}/grants", protected(routes.Administration.Grants))
+		mux.Handle("POST /api/v1/organizations/{organizationId}/grants", protected(routes.Administration.Grants))
+		mux.Handle("DELETE /api/v1/grants/{id}", protected(routes.Administration.Grant))
+		mux.Handle("GET /api/v1/organizations/{organizationId}/audit", protected(routes.Administration.Audit))
+		mux.Handle("GET /api/v1/organizations/{organizationId}/editor-policies", protected(routes.Administration.EditorPolicies))
+		mux.Handle("PUT /api/v1/organizations/{organizationId}/editor-policies", protected(routes.Administration.EditorPolicies))
+		mux.Handle("GET /api/v1/access/effective", protected(routes.Administration.EffectiveAccess))
 	}
 	if routes.WOPI != nil {
 		mux.HandleFunc("GET /api/v1/wopi/files/{id}", routes.WOPI.CheckFileInfo)

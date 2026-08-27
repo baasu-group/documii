@@ -43,11 +43,24 @@ func (handler *Handler) Documents(writer http.ResponseWriter, request *http.Requ
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, MaxNativeBytes+16<<10))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&payload) != nil || decoder.Decode(&struct{}{}) != io.EOF || payload.Family != "native" {
+	if decoder.Decode(&payload) != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "invalid_document_request"})
 		return
 	}
-	value, err := handler.service.CreateNative(request.Context(), CreateRequest{ActorID: subject.ID, WorkspaceID: workspaceID, FolderID: payload.FolderID, Title: payload.Title, Content: payload.Content, IdempotencyKey: request.Header.Get("Idempotency-Key")})
+	var value Document
+	var err error
+	if payload.Family == "native" {
+		value, err = handler.service.CreateNative(request.Context(), CreateRequest{ActorID: subject.ID, WorkspaceID: workspaceID, FolderID: payload.FolderID, Title: payload.Title, Content: payload.Content, IdempotencyKey: request.Header.Get("Idempotency-Key")})
+	} else if payload.Family == "text" || payload.Family == "spreadsheet" || payload.Family == "presentation" {
+		if len(payload.Content) != 0 && string(payload.Content) != "null" {
+			writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "invalid_document_request"})
+			return
+		}
+		value, err = handler.service.CreateOffice(request.Context(), CreateOfficeRequest{ActorID: subject.ID, WorkspaceID: workspaceID, FolderID: payload.FolderID, Title: payload.Title, Family: payload.Family, IdempotencyKey: request.Header.Get("Idempotency-Key")})
+	} else {
+		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "invalid_document_request"})
+		return
+	}
 	if err != nil {
 		handler.error(writer, err)
 		return

@@ -136,6 +136,9 @@ func (service *PersistentSessionService) CreateSession(ctx context.Context, requ
 	if err != nil {
 		return editors.Session{}, err
 	}
+	if request.ProviderID != editors.ProviderID(document.EditorProvider) {
+		return editors.Session{}, editors.ErrProviderUnavailable
+	}
 	mode := "view"
 	canEdit := request.RequestedEdit && access.CanEdit
 	if canEdit {

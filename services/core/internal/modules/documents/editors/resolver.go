@@ -7,9 +7,19 @@ import (
 
 type Policy map[DocumentFamily][]ProviderID
 
+type PolicyStore interface {
+	Preferred(context.Context, string, DocumentFamily) (ProviderID, bool, error)
+}
+
 type Resolver struct {
 	registry *Registry
 	policy   Policy
+	store    PolicyStore
+}
+
+func (resolver *Resolver) WithPolicyStore(store PolicyStore) *Resolver {
+	resolver.store = store
+	return resolver
 }
 
 func NewResolver(registry *Registry, policy Policy) *Resolver {
@@ -27,8 +37,30 @@ func DefaultPolicy() Policy {
 }
 
 func (resolver *Resolver) Resolve(ctx context.Context, family DocumentFamily, required ...Capability) (Provider, error) {
-	candidates := resolver.policy[family]
+	return resolver.resolveCandidates(ctx, family, resolver.policy[family], required...)
+}
+
+func (resolver *Resolver) ResolveForOrganization(ctx context.Context, organizationID string, family DocumentFamily, required ...Capability) (Provider, error) {
+	candidates := append([]ProviderID(nil), resolver.policy[family]...)
+	if resolver.store != nil {
+		preferred, found, err := resolver.store.Preferred(ctx, organizationID, family)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			candidates = append([]ProviderID{preferred}, candidates...)
+		}
+	}
+	return resolver.resolveCandidates(ctx, family, candidates, required...)
+}
+
+func (resolver *Resolver) resolveCandidates(ctx context.Context, family DocumentFamily, candidates []ProviderID, required ...Capability) (Provider, error) {
+	seen := map[ProviderID]bool{}
 	for _, id := range candidates {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		provider, exists := resolver.registry.Get(id)
 		if !exists {
 			continue

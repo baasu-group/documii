@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/documi/documi/services/core/internal/modules/permissions"
+	"github.com/documi/documi/services/core/internal/modules/documents/templates"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -20,6 +21,29 @@ type UploadRequest struct {
 	ActorID, WorkspaceID, IdempotencyKey, Filename, MIMEType string
 	FolderID                                                 *string
 	Content                                                  io.Reader
+	titleOverride, operation, auditEvent                     string
+}
+
+type CreateOfficeRequest struct {
+	ActorID, WorkspaceID, IdempotencyKey, Title, Family string
+	FolderID                                             *string
+}
+
+func (service *Service) CreateOffice(ctx context.Context, request CreateOfficeRequest) (Document, error) {
+	title := strings.TrimSpace(request.Title)
+	if title == "" || utf8.RuneCountInString(title) > 255 {
+		return Document{}, ErrInvalidDocument
+	}
+	template, err := templates.Get(request.Family)
+	if err != nil {
+		return Document{}, ErrInvalidDocument
+	}
+	return service.UploadOffice(ctx, UploadRequest{
+		ActorID: request.ActorID, WorkspaceID: request.WorkspaceID, FolderID: request.FolderID,
+		IdempotencyKey: request.IdempotencyKey, Filename: "document" + template.Extension,
+		MIMEType: template.MIMEType, Content: bytes.NewReader(template.Content), titleOverride: title,
+		operation: "document.office.create", auditEvent: "document.created",
+	})
 }
 
 type officeFormat struct{ Family, MIMEType, ODFMIME string }
@@ -46,6 +70,9 @@ func (service *Service) UploadOffice(ctx context.Context, request UploadRequest)
 		return Document{}, ErrInvalidDocument
 	}
 	title := strings.TrimSpace(strings.TrimSuffix(request.Filename, filepath.Ext(request.Filename)))
+	if request.titleOverride != "" {
+		title = request.titleOverride
+	}
 	if title == "" || utf8.RuneCountInString(title) > 255 {
 		return Document{}, ErrInvalidDocument
 	}
@@ -85,12 +112,27 @@ func (service *Service) UploadOffice(ctx context.Context, request UploadRequest)
 	if !allowed {
 		return Document{}, ErrForbidden
 	}
-	if existing, found, err := service.idempotentDocument(ctx, organizationID, actor, request.IdempotencyKey, "document.upload"); err != nil {
+	operation := request.operation
+	if operation == "" {
+		operation = "document.upload"
+	}
+	auditEvent := request.auditEvent
+	if auditEvent == "" {
+		auditEvent = "document.imported"
+	}
+	if existing, found, err := service.idempotentDocument(ctx, organizationID, actor, request.IdempotencyKey, operation); err != nil {
 		return Document{}, err
 	} else if found {
 		return service.Get(ctx, request.ActorID, existing.String(), false)
 	}
 	documentID, versionID, objectID := uuid.New(), uuid.New(), uuid.New()
+	if service.editors == nil {
+		return Document{}, ErrInvalidDocument
+	}
+	providerID, err := service.editors.Select(ctx, organizationID.String(), format.Family)
+	if err != nil {
+		return Document{}, err
+	}
 	key := path.Join("documents", organizationID.String(), workspaceID.String(), documentID.String(), versionID.String(), "document"+extension)
 	object, err := service.storage.Put(ctx, key, bytes.NewReader(body))
 	if err != nil {
@@ -107,7 +149,7 @@ func (service *Service) UploadOffice(ctx context.Context, request UploadRequest)
 		return Document{}, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO documents(id,organization_id,workspace_id,folder_id,title,family,mime_type,editor_provider,storage_mode,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'collabora','managed',$8)`, documentID, organizationID, workspaceID, folderID, title, format.Family, format.MIMEType, actor); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO documents(id,organization_id,workspace_id,folder_id,title,family,mime_type,editor_provider,storage_mode,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'managed',$9)`, documentID, organizationID, workspaceID, folderID, title, format.Family, format.MIMEType, providerID, actor); err != nil {
 		return Document{}, err
 	}
 	if _, err = tx.Exec(ctx, "INSERT INTO storage_objects(id,provider,storage_key,sha256,size,content_type) VALUES($1,'filesystem',$2,$3,$4,$5)", objectID, key, object.SHA256, object.Size, format.MIMEType); err != nil {
@@ -119,10 +161,10 @@ func (service *Service) UploadOffice(ctx context.Context, request UploadRequest)
 	if _, err = tx.Exec(ctx, "UPDATE documents SET current_version_id=$2 WHERE id=$1", documentID, versionID); err != nil {
 		return Document{}, err
 	}
-	if _, err = tx.Exec(ctx, "INSERT INTO idempotency_keys(organization_id,actor_id,key,operation,resource_id) VALUES($1,$2,$3,'document.upload',$4)", organizationID, actor, request.IdempotencyKey, documentID); err != nil {
+	if _, err = tx.Exec(ctx, "INSERT INTO idempotency_keys(organization_id,actor_id,key,operation,resource_id) VALUES($1,$2,$3,$4,$5)", organizationID, actor, request.IdempotencyKey, operation, documentID); err != nil {
 		return Document{}, err
 	}
-	if err = appendAudit(ctx, tx, "document.imported", organizationID, workspaceID, actor, documentID); err != nil {
+	if err = appendAudit(ctx, tx, auditEvent, organizationID, workspaceID, actor, documentID); err != nil {
 		return Document{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {

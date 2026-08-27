@@ -17,10 +17,12 @@ const options: Array<{
 export function NewDocumentMenu({
   providers,
   onCreateNative,
+  onCreateOffice,
   onUpload,
 }: {
   providers: EditorProviderStatus[];
   onCreateNative: () => void;
+  onCreateOffice?: (family: "text" | "spreadsheet" | "presentation") => void;
   onUpload?: (file: File) => void;
 }) {
   const available = options.filter((option) =>
@@ -39,7 +41,14 @@ export function NewDocumentMenu({
         <button
           key={option.label}
           type="button"
-          onClick={option.family === "native" ? onCreateNative : undefined}
+          onClick={
+            option.family === "native"
+              ? onCreateNative
+              : !option.external && option.family !== "pdf"
+                ? () => onCreateOffice?.(option.family)
+                : undefined
+          }
+          disabled={option.family !== "native" && (!onCreateOffice || Boolean(option.external))}
           className="rounded-lg border border-black/[0.07] bg-white px-4 py-3 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
         >
           {option.label}

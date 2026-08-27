@@ -9,9 +9,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/documi/documi/services/core/internal/modules/administration"
 	"github.com/documi/documi/services/core/internal/modules/documents"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
+	"github.com/documi/documi/services/core/internal/modules/documents/templates"
 	"github.com/documi/documi/services/core/internal/modules/permissions"
 	"github.com/documi/documi/services/core/internal/modules/storage"
 	"github.com/documi/documi/services/core/internal/modules/system"
@@ -90,6 +92,11 @@ func main() {
 	collaboraReady := false
 	collaboraReason := "document_service_unavailable"
 	if configValue.Editors.CollaboraEnabled && documentService != nil {
+		templateErr := templates.Ready()
+		if templateErr != nil {
+			collaboraReason = "office_templates_unavailable"
+			logger.Error("Office templates unavailable", "error", templateErr)
+		} else {
 		discovery, discoveryErr := collabora.NewDiscovery(configValue.Editors.CollaboraURL)
 		if discoveryErr == nil {
 			discoveryErr = discovery.Healthy(ctx)
@@ -107,6 +114,7 @@ func main() {
 			wopiGateway = collabora.NewPersistentGateway(documentService)
 			collaboraReady = true
 			collaboraReason = ""
+		}
 		}
 	}
 	wopiHandler, err := collabora.NewHandler(tokenService, wopiGateway, documents.MaxDocumentBytes)
@@ -127,8 +135,34 @@ func main() {
 		logger.Error("register document editor providers", "error", err)
 		os.Exit(1)
 	}
-	editorService := editors.NewService(editorRegistry, editors.NewResolver(editorRegistry, editors.DefaultPolicy()))
+	editorResolver := editors.NewResolver(editorRegistry, editors.DefaultPolicy())
+	if databasePool != nil {
+		editorResolver.WithPolicyStore(editors.NewPostgresPolicyStore(databasePool))
+	}
+	editorService := editors.NewService(editorRegistry, editorResolver)
+	if documentService != nil {
+		documentService.SetEditorSelector(documents.EditorSelectorFunc(func(ctx context.Context, organizationID, family string) (string, error) {
+			status, err := editorService.ResolveForOrganization(ctx, organizationID, editors.DocumentFamily(family), editors.CapabilityCreate)
+			return string(status.ID), err
+		}))
+	}
 	editorHandler := editors.NewHandler(editorService, sessionService)
+	var administrationHandler *administration.Handler
+	if databasePool != nil {
+		administrationService := administration.NewService(databasePool, permissions.NewAuthorizer(databasePool), func(ctx context.Context, family, providerID string) error {
+			status, err := editorService.Provider(ctx, editors.ProviderID(providerID))
+			if err != nil {
+				return err
+			}
+			for _, supported := range status.Families {
+				if string(supported) == family {
+					return nil
+				}
+			}
+			return editors.ErrProviderUnavailable
+		})
+		administrationHandler = administration.NewHandler(administrationService)
+	}
 	var readiness httpserver.Readiness = httpserver.StaticReadiness(true)
 	if databasePool != nil {
 		readiness = httpserver.ReadinessFunc(func() bool {
@@ -141,12 +175,13 @@ func main() {
 	server := &http.Server{
 		Addr: configValue.HTTPAddress,
 		Handler: httpserver.NewRouter(logger, httpserver.Routes{
-			System:        system.NewHandler(systemService),
-			Editors:       editorHandler,
-			WOPI:          wopiHandler,
-			Authenticator: authenticator,
-			AuthConfig:    map[string]any{"mode": configValue.Auth.Mode, "issuer": configValue.Auth.Issuer, "audience": configValue.Auth.Audience, "clientId": configValue.Auth.ClientID},
-			Documents:     documentHandler,
+			System:         system.NewHandler(systemService),
+			Editors:        editorHandler,
+			WOPI:           wopiHandler,
+			Authenticator:  authenticator,
+			AuthConfig:     map[string]any{"mode": configValue.Auth.Mode, "issuer": configValue.Auth.Issuer, "audience": configValue.Auth.Audience, "clientId": configValue.Auth.ClientID},
+			Documents:      documentHandler,
+			Administration: administrationHandler,
 		}, readiness),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,

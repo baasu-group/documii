@@ -9,6 +9,14 @@ import type {
   SaveNativeDocumentRequest,
   SystemInfo,
   Workspace,
+  FolderRecord,
+  GroupRecord,
+  GroupMember,
+  AuthorizationGrant,
+  AuthorizationRole,
+  AuditPage,
+  EditorPolicy,
+  DocumentFamily,
 } from "@documi/shared-types";
 
 export interface ApiClientOptions {
@@ -38,6 +46,7 @@ export function createApiClient({
         { error?: string } | undefined;
       throw new Error(problem?.error ?? `documi_api_${response.status}`);
     }
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   };
 
@@ -72,6 +81,20 @@ export function createApiClient({
           body: JSON.stringify({ title: value.title, family: "native", content: value.content }),
         },
       ),
+    createOfficeDocument: (
+      workspaceId: string,
+      family: "text" | "spreadsheet" | "presentation",
+      title: string,
+      idempotencyKey: string,
+    ) =>
+      request<DocumentRecord>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/documents`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify({ title, family }),
+        },
+      ),
     uploadOfficeDocument: (workspaceId: string, file: File, idempotencyKey: string) => {
       const body = new FormData();
       body.set("file", file);
@@ -95,6 +118,89 @@ export function createApiClient({
       request<{ versions: DocumentVersion[] }>(
         `/api/v1/documents/${encodeURIComponent(documentId)}/versions`,
       ),
+    folders: (workspaceId: string) =>
+      request<{ folders: FolderRecord[] }>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/folders`,
+      ),
+    createFolder: (workspaceId: string, name: string, parentId?: string) =>
+      request<FolderRecord>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/folders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parentId }),
+      }),
+    groups: (organizationId: string) =>
+      request<{ groups: GroupRecord[] }>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/groups`,
+      ),
+    createGroup: (organizationId: string, name: string) =>
+      request<GroupRecord>(`/api/v1/organizations/${encodeURIComponent(organizationId)}/groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    deleteGroup: (groupId: string) =>
+      request<void>(`/api/v1/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" }),
+    groupMembers: (groupId: string) =>
+      request<{ members: GroupMember[] }>(`/api/v1/groups/${encodeURIComponent(groupId)}/members`),
+    addGroupMember: (groupId: string, userId: string) =>
+      request<void>(`/api/v1/groups/${encodeURIComponent(groupId)}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      }),
+    removeGroupMember: (groupId: string, userId: string) =>
+      request<void>(
+        `/api/v1/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+        { method: "DELETE" },
+      ),
+    grants: (organizationId: string) =>
+      request<{ grants: AuthorizationGrant[] }>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/grants`,
+      ),
+    createGrant: (
+      organizationId: string,
+      value: {
+        principalType: "user" | "group";
+        principalId: string;
+        scopeType: "organization" | "workspace" | "folder" | "document";
+        scopeId: string;
+        role: AuthorizationRole;
+      },
+    ) =>
+      request<AuthorizationGrant>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/grants`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(value),
+        },
+      ),
+    deleteGrant: (grantId: string) =>
+      request<void>(`/api/v1/grants/${encodeURIComponent(grantId)}`, { method: "DELETE" }),
+    audit: (organizationId: string, cursor?: string) => {
+      const query = new URLSearchParams({ limit: "50" });
+      if (cursor) query.set("cursor", cursor);
+      return request<AuditPage>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/audit?${query}`,
+      );
+    },
+    editorPolicies: (organizationId: string) =>
+      request<{ policies: EditorPolicy[] }>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/editor-policies`,
+      ),
+    setEditorPolicy: (
+      organizationId: string,
+      family: DocumentFamily,
+      providerId: EditorProviderId,
+    ) =>
+      request<EditorPolicy>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/editor-policies`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ family, providerId }),
+        },
+      ),
   };
 }
 
@@ -109,9 +215,32 @@ export function createServerDocumentGateway(options: ApiClientOptions) {
     },
     list: async (workspaceId: string) => (await client.listDocuments(workspaceId)).documents,
     createNative: client.createNativeDocument,
+    createOffice: client.createOfficeDocument,
     uploadOffice: client.uploadOfficeDocument,
+    createEditorSession: client.createEditorSession,
     get: client.getDocument,
     saveNative: client.saveNativeDocument,
     versions: async (documentId: string) => (await client.documentVersions(documentId)).versions,
+  };
+}
+
+export function createServerAdministrationGateway(options: ApiClientOptions) {
+  const client = createApiClient(options);
+  return {
+    folders: async (workspaceId: string) => (await client.folders(workspaceId)).folders,
+    createFolder: client.createFolder,
+    groups: async (organizationId: string) => (await client.groups(organizationId)).groups,
+    createGroup: client.createGroup,
+    deleteGroup: client.deleteGroup,
+    groupMembers: async (groupId: string) => (await client.groupMembers(groupId)).members,
+    addGroupMember: client.addGroupMember,
+    removeGroupMember: client.removeGroupMember,
+    grants: async (organizationId: string) => (await client.grants(organizationId)).grants,
+    createGrant: client.createGrant,
+    deleteGrant: client.deleteGrant,
+    audit: client.audit,
+    editorPolicies: async (organizationId: string) =>
+      (await client.editorPolicies(organizationId)).policies,
+    setEditorPolicy: client.setEditorPolicy,
   };
 }
