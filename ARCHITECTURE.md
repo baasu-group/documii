@@ -201,17 +201,17 @@ Implemented document, folder, group, membership, grant, editor-policy, and Colla
 
 ## 21. Secrets architecture
 
-Environment variables provide bootstrap process configuration. Connection credentials and integration secrets will use an encrypted secret-store abstraction, with ciphertext and key metadata separate from external master-key material. Secrets are redacted from logs, events, audit metadata, API responses, and diagnostics. Rotation and access auditing are required before production connector credentials are stored.
+Environment variables provide bootstrap process configuration. Connection credentials use the implemented AES-256-GCM SecretStore, with ciphertext, nonce, and key version in PostgreSQL while base64 master-key material remains deployment configuration. Encryption binds ciphertext to its connection and secret name. Secrets are write-only at the API boundary and redacted from logs, events, audit metadata, reports, and diagnostics.
 
 Migration `000003` establishes platform grants, organization settings and memberships, expiring invitation records, report runs, trusted integration installations/connections, and encrypted-secret records. Application adapters must use the SecretStore boundary before writing connector credentials; direct table access from connector handlers is prohibited.
 
 ## 21.1 Organization and reporting authority
 
-Documi owns membership and role state even when an identity provider sends an invitation. Platform authority is separate from organization/document authority and never grants content access. Organization status is checked in the permission query, so suspension blocks document and provider operations server-side. Curated reports use PostgreSQL aggregates and, when exported, enter the managed document/version/audit flow. See ADR 0013.
+Documi owns membership and role state even when an identity provider sends an invitation. Platform authority is separate from organization/document authority and never grants content access. Organization status is checked in the permission query, so suspension blocks document and provider operations server-side. Invitation tokens are random, hashed at rest, single-use, expiry-bound, and accepted only by a verified matching email. SMTP delivery failures are recorded without exposing the token. Curated reports use PostgreSQL aggregates and fixed CSV/XLSX/PDF renderers; exports enter the managed document/version/audit flow under the controlled Reports folder. See ADR 0013.
 
 ## 21.2 Trusted integrations
 
-The manifest under `contracts/plugins` describes trusted integration metadata; it is not a dynamic code-loading mechanism. Native, Collabora, LibreOffice, and Google adapters remain compiled into their owning deployment target. Air-gap and network-egress declarations are enforced by server configuration. See ADR 0014.
+The manifest under `contracts/plugins` describes trusted integration metadata; it is not a dynamic code-loading mechanism. Native, Collabora, LibreOffice, and Google adapters remain compiled into their owning deployment target. The normalized installation/connection registry is server-owned. Google organization and personal OAuth use authorization code, PKCE, hashed single-use state, offline access, the narrow `drive.file` scope, encrypted tokens, and memory-only Picker access tokens. Air-gap and network-egress declarations are enforced by server configuration. See ADR 0014.
 
 ## 22. Local desktop architecture
 
@@ -262,7 +262,7 @@ Docker Compose is the development and initial single-node server profile. Images
 
 ## 29. Explicitly deferred features
 
-ONLYOFFICE callbacks; LibreOffice open/save-back and conversion runtime; Google OAuth/import/export; SecretStore; permission denies and advanced invitation/user-directory UX; Docling/Tesseract/model dependencies; reranking; generated SDKs; S3; outbound connectors/webhooks; advanced SSO; realtime protocols; multi-node scaling; Kubernetes implementation; local/server synchronization; marketplace and mobile applications. Real Collabora/OIDC browser and native Tauri acceptance now have reproducible CI workflows but remain unverified until those workflows complete on capacity-managed runners.
+ONLYOFFICE callbacks; LibreOffice open/save-back and conversion runtime; Google Drive create/import/export/ACL operations and domain-wide delegation; permission denies; Keycloak Organizations provisioning; Docling/Tesseract/model dependencies; reranking; generated SDKs; S3; outbound connectors/webhooks beyond invitation SMTP; advanced SSO; realtime protocols; multi-node scaling; Kubernetes implementation; local/server synchronization; marketplace and mobile applications. Real Collabora/OIDC browser and native Tauri acceptance now have reproducible CI workflows but remain unverified until those workflows complete on capacity-managed runners.
 
 ## 30. ADR index
 

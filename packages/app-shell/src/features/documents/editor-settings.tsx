@@ -1,7 +1,11 @@
 import type { EditorProviderStatus } from "@documi/shared-types";
 import { useEffect, useState } from "react";
 
-import type { EditorPlatform, LibreOfficeStatus } from "./editor-platform";
+import type {
+  EditorPlatform,
+  LibreOfficeExtensionStatus,
+  LibreOfficeStatus,
+} from "./editor-platform";
 import { useEditorProviders } from "./use-editor-providers";
 import { WorkspaceAdministration } from "./workspace-administration";
 
@@ -18,13 +22,16 @@ const labels: Record<EditorProviderStatus["id"], string> = {
 export function EditorSettings({ platform }: { platform: EditorPlatform }) {
   const { providers, error } = useEditorProviders(platform.kind === "desktop");
   const [libreOffice, setLibreOffice] = useState<LibreOfficeStatus>();
+  const [libreOfficeExtension, setLibreOfficeExtension] =
+    useState<LibreOfficeExtensionStatus>();
+  const [installingExtension, setInstallingExtension] = useState(false);
   const [section, setSection] = useState<"editors" | "access" | "audit">("editors");
   useEffect(() => {
     if (platform.kind === "desktop")
-      platform
-        .checkLibreOffice?.()
-        .then(setLibreOffice)
-        .catch(() => setLibreOffice({ installed: false }));
+      Promise.all([
+        platform.checkLibreOffice?.().then(setLibreOffice),
+        platform.checkLibreOfficeExtension?.().then(setLibreOfficeExtension),
+      ]).catch(() => setLibreOffice({ installed: false }));
   }, [platform]);
 
   return (
@@ -81,6 +88,42 @@ export function EditorSettings({ platform }: { platform: EditorPlatform }) {
                 ) : null}
                 {local?.version && (
                   <p className="mb-0 text-sm text-black/55">Version {local.version}</p>
+                )}
+                {provider.id === "libreoffice-desktop" && platform.kind === "desktop" && local?.installed && (
+                  <div className="mt-3 rounded-lg bg-paper p-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        Documi extension: {libreOfficeExtension?.installed ? "Installed" : "Not installed"}
+                        {libreOfficeExtension?.version ? ` · ${libreOfficeExtension.version}` : ""}
+                      </span>
+                      {!libreOfficeExtension?.installed && (
+                        <button
+                          type="button"
+                          disabled={installingExtension || !libreOfficeExtension?.packageAvailable}
+                          className="rounded-md border border-black/10 bg-white px-3 py-1.5 font-semibold disabled:opacity-50"
+                          onClick={async () => {
+                            if (!window.confirm("Install the trusted Documi extension into this LibreOffice installation?")) return;
+                            setInstallingExtension(true);
+                            try {
+                              setLibreOfficeExtension(await platform.installLibreOfficeExtension!(true));
+                            } finally {
+                              setInstallingExtension(false);
+                            }
+                          }}
+                        >
+                          {installingExtension ? "Installing…" : "Install extension"}
+                        </button>
+                      )}
+                    </div>
+                    <p className="mb-0 mt-2 text-xs text-black/50">
+                      Local workspaces only. Installation is explicit; the extension receives only an opaque working-copy ID.
+                    </p>
+                    {libreOfficeExtension?.lastError && (
+                      <p role="alert" className="mb-0 mt-2 text-xs text-red-800">
+                        {libreOfficeExtension.lastError.replaceAll("_", " ")}
+                      </p>
+                    )}
+                  </div>
                 )}
                 {!available && provider.reason && (
                   <p className="mb-0 text-sm text-black/45">

@@ -19,15 +19,16 @@ import (
 var ErrNotFound = errors.New("secret not found")
 
 type Store struct {
-	pool    *pgxpool.Pool
+	pool   *pgxpool.Pool
+	cipher *Cipher
+}
+
+type Cipher struct {
 	keys    map[int][]byte
 	current int
 }
 
-func NewStore(pool *pgxpool.Pool, current int, keys map[int][]byte) (*Store, error) {
-	if pool == nil {
-		return nil, errors.New("secret database required")
-	}
+func NewCipher(current int, keys map[int][]byte) (*Cipher, error) {
 	if current < 1 {
 		return nil, errors.New("secret key version required")
 	}
@@ -41,7 +42,32 @@ func NewStore(pool *pgxpool.Pool, current int, keys map[int][]byte) (*Store, err
 	if copyKeys[current] == nil {
 		return nil, errors.New("current secret key missing")
 	}
-	return &Store{pool: pool, keys: copyKeys, current: current}, nil
+	return &Cipher{keys: copyKeys, current: current}, nil
+}
+func (c *Cipher) Encrypt(label string, value []byte) ([]byte, []byte, int, error) {
+	if label == "" || len(value) == 0 {
+		return nil, nil, 0, errors.New("invalid secret")
+	}
+	ciphertext, nonce, err := seal(c.keys[c.current], value, []byte(label))
+	return ciphertext, nonce, c.current, err
+}
+func (c *Cipher) Decrypt(label string, ciphertext, nonce []byte, version int) ([]byte, error) {
+	key := c.keys[version]
+	if key == nil {
+		return nil, fmt.Errorf("secret key version %d unavailable", version)
+	}
+	return open(key, ciphertext, nonce, []byte(label))
+}
+
+func NewStore(pool *pgxpool.Pool, current int, keys map[int][]byte) (*Store, error) {
+	if pool == nil {
+		return nil, errors.New("secret database required")
+	}
+	cipher, err := NewCipher(current, keys)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{pool: pool, cipher: cipher}, nil
 }
 func seal(key, plain, aad []byte) ([]byte, []byte, error) {
 	block, err := aes.NewCipher(key)
@@ -75,11 +101,11 @@ func (s *Store) Put(ctx context.Context, connectionID, name string, value []byte
 	if err != nil || name == "" || len(value) == 0 {
 		return errors.New("invalid secret")
 	}
-	ciphertext, nonce, err := seal(s.keys[s.current], value, aad(connection, name))
+	ciphertext, nonce, version, err := s.cipher.Encrypt(string(aad(connection, name)), value)
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO encrypted_secrets(id,connection_id,name,ciphertext,nonce,key_version) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(connection_id,name) DO UPDATE SET ciphertext=$4,nonce=$5,key_version=$6,updated_at=now()`, uuid.New(), connection, name, ciphertext, nonce, s.current)
+	_, err = s.pool.Exec(ctx, `INSERT INTO encrypted_secrets(id,connection_id,name,ciphertext,nonce,key_version) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(connection_id,name) DO UPDATE SET ciphertext=$4,nonce=$5,key_version=$6,updated_at=now()`, uuid.New(), connection, name, ciphertext, nonce, version)
 	return err
 }
 func (s *Store) Get(ctx context.Context, connectionID, name string) ([]byte, error) {
@@ -96,9 +122,17 @@ func (s *Store) Get(ctx context.Context, connectionID, name string) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	key := s.keys[version]
-	if key == nil {
-		return nil, fmt.Errorf("secret key version %d unavailable", version)
+	return s.cipher.Decrypt(string(aad(connection, name)), ciphertext, nonce, version)
+}
+func (s *Store) PutTx(ctx context.Context, tx pgx.Tx, connectionID, name string, value []byte) error {
+	connection, err := uuid.Parse(connectionID)
+	if err != nil || name == "" || len(value) == 0 {
+		return errors.New("invalid secret")
 	}
-	return open(key, ciphertext, nonce, aad(connection, name))
+	ciphertext, nonce, version, err := s.cipher.Encrypt(string(aad(connection, name)), value)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO encrypted_secrets(id,connection_id,name,ciphertext,nonce,key_version) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(connection_id,name) DO UPDATE SET ciphertext=$4,nonce=$5,key_version=$6,updated_at=now()`, uuid.New(), connection, name, ciphertext, nonce, version)
+	return err
 }

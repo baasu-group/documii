@@ -15,8 +15,11 @@ export function OfficeEditorContainer({
   const [session, setSession] = useState<EditorSession>();
   const [error, setError] = useState<string>();
   const form = useRef<HTMLFormElement>(null);
+  const [workingCopyId, setWorkingCopyId] = useState<string>();
+  const [savedVersion, setSavedVersion] = useState<string>();
 
   useEffect(() => {
+    if (providerId === "libreoffice-desktop" && gateway?.openInLibreOffice) return;
     if (!gateway?.createEditorSession) {
       setError("This workspace cannot create provider sessions.");
       return;
@@ -30,6 +33,58 @@ export function OfficeEditorContainer({
   useEffect(() => {
     if (session?.mode === "iframe" && session.accessToken) form.current?.submit();
   }, [session]);
+
+  if (providerId === "libreoffice-desktop" && gateway?.openInLibreOffice)
+    return (
+      <section className="rounded-xl border border-black/10 bg-white p-6">
+        <p className="m-0 text-xs font-bold uppercase tracking-wider text-forest">
+          Local desktop editor
+        </p>
+        <h1 className="mt-2 text-3xl font-semibold">LibreOffice working copy</h1>
+        <p className="text-sm text-black/55">
+          Documi creates a controlled local copy. LibreOffice never receives a database or server
+          storage path. Saving back always creates a new immutable version.
+        </p>
+        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            className="rounded-lg bg-forest px-4 py-2 font-semibold text-white"
+            onClick={async () => {
+              try {
+                const copy = await gateway.openInLibreOffice!(documentId);
+                setWorkingCopyId(copy.id);
+                setError(undefined);
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "libreoffice_open_failed");
+              }
+            }}
+          >
+            Open in LibreOffice
+          </button>
+          <button
+            type="button"
+            disabled={!workingCopyId || !gateway.saveLibreOfficeWorkingCopy}
+            className="rounded-lg border border-black/10 px-4 py-2 font-semibold disabled:opacity-50"
+            onClick={async () => {
+              if (!workingCopyId || !gateway.saveLibreOfficeWorkingCopy) return;
+              if (!window.confirm("Save this LibreOffice working copy back as a new Documi version?")) return;
+              try {
+                const result = await gateway.saveLibreOfficeWorkingCopy(workingCopyId, crypto.randomUUID());
+                setSavedVersion(result.currentVersionId);
+                setError(undefined);
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : "libreoffice_save_failed");
+              }
+            }}
+          >
+            Save back to Documi
+          </button>
+        </div>
+        {workingCopyId && <p className="text-sm text-black/50">Working copy ready. Save in LibreOffice, then use Save back.</p>}
+        {savedVersion && <p className="text-sm text-forest">Saved immutable version {savedVersion}</p>}
+      </section>
+    );
 
   if (error)
     return (

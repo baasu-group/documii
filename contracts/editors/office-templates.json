@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "templates": [
+    {
+      "family": "text",
+      "extension": ".docx",
+      "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "sha256": "560b0e299a592f6b7d1ec9abab98648f1d92bf8fa684ce544a0424fdde798903"
+    },
+    {
+      "family": "spreadsheet",
+      "extension": ".xlsx",
+      "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "sha256": "32ce7d6f125c2cdde13a61c94c6fd0f05e96dea7ab73c0f7ee6b67b6dd37cf04"
+    },
+    {
+      "family": "presentation",
+      "extension": ".pptx",
+      "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "sha256": "dd4746eb40918140f90310247c04e3a3aa7232689de2e2f37670a10e562a4454"
+    }
+  ]
+}

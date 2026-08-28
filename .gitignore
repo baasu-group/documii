@@ -22,6 +22,7 @@ __pycache__/
 # Rust / Tauri
 target/
 apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/resources/libreoffice/*.oxt
 
 # Runtime data and secrets
 .data/

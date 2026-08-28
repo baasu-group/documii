@@ -10,6 +10,7 @@ import (
 	"github.com/documi/documi/services/core/internal/modules/documents"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
+	"github.com/documi/documi/services/core/internal/modules/integrations"
 	"github.com/documi/documi/services/core/internal/modules/organizations"
 	"github.com/documi/documi/services/core/internal/modules/reporting"
 	"github.com/documi/documi/services/core/internal/modules/system"
@@ -38,6 +39,7 @@ type Routes struct {
 	Administration *administration.Handler
 	Organizations  *organizations.Handler
 	Reporting      *reporting.Handler
+	Integrations   *integrations.Handler
 }
 
 func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Handler {
@@ -114,8 +116,18 @@ func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Han
 		mux.Handle("GET /api/v1/platform/organizations", protected(routes.Organizations.Organizations))
 		mux.Handle("POST /api/v1/platform/organizations", protected(routes.Organizations.Organizations))
 		mux.Handle("PATCH /api/v1/platform/organizations/{id}", protected(routes.Organizations.Organization))
+		mux.Handle("GET /api/v1/platform/organizations/{id}/documents", protected(routes.Organizations.PlatformDocuments))
 		mux.Handle("GET /api/v1/platform/dashboard", protected(routes.Organizations.PlatformDashboard))
 		mux.Handle("GET /api/v1/organizations/{id}/dashboard", protected(routes.Organizations.OrganizationDashboard))
+		mux.Handle("GET /api/v1/organizations/{id}/settings", protected(routes.Organizations.Settings))
+		mux.Handle("PATCH /api/v1/organizations/{id}/settings", protected(routes.Organizations.Settings))
+		mux.Handle("GET /api/v1/organizations/{id}/members", protected(routes.Organizations.Members))
+		mux.Handle("PATCH /api/v1/organizations/{id}/members/{userId}", protected(routes.Organizations.Member))
+		mux.Handle("DELETE /api/v1/organizations/{id}/members/{userId}", protected(routes.Organizations.Member))
+		mux.Handle("GET /api/v1/organizations/{id}/invitations", protected(routes.Organizations.Invitations))
+		mux.Handle("POST /api/v1/organizations/{id}/invitations", protected(routes.Organizations.Invitations))
+		mux.Handle("POST /api/v1/invitations/{id}/resend", protected(routes.Organizations.ResendInvitation))
+		mux.Handle("DELETE /api/v1/invitations/{id}", protected(routes.Organizations.Invitation))
 		mux.Handle("POST /api/v1/invitations/{token}/accept", protected(routes.Organizations.AcceptInvitation))
 	}
 	if routes.Reporting != nil && routes.Authenticator != nil {
@@ -127,6 +139,22 @@ func NewRouter(logger *slog.Logger, routes Routes, readiness Readiness) http.Han
 		mux.Handle("POST /api/v1/organizations/{id}/report-runs", protected(routes.Reporting.Runs))
 		mux.Handle("GET /api/v1/report-runs/{id}", protected(routes.Reporting.Run))
 		mux.Handle("POST /api/v1/report-runs/{id}/exports", protected(routes.Reporting.Export))
+	}
+	if routes.Integrations != nil && routes.Authenticator != nil {
+		protected := func(handler http.HandlerFunc) http.Handler {
+			return platformauth.Middleware(routes.Authenticator, handler)
+		}
+		mux.Handle("GET /api/v1/integrations", protected(routes.Integrations.Statuses))
+		mux.Handle("PATCH /api/v1/platform/integrations/{id}", protected(routes.Integrations.Installation))
+		mux.Handle("GET /api/v1/organizations/{id}/connections", protected(routes.Integrations.Connections))
+		mux.Handle("DELETE /api/v1/connections/{id}", protected(routes.Integrations.Connection))
+		mux.Handle("POST /api/v1/organizations/{id}/connections/google/oauth/start", protected(routes.Integrations.GoogleOrganizationStart))
+		mux.Handle("POST /api/v1/users/me/connections/google/oauth/start", protected(routes.Integrations.GooglePersonalStart))
+		mux.Handle("POST /api/v1/connections/{id}/google/picker-session", protected(routes.Integrations.GooglePicker))
+		mux.Handle("POST /api/v1/workspaces/{id}/external-documents", protected(routes.Integrations.GoogleDocument))
+	}
+	if routes.Integrations != nil {
+		mux.HandleFunc("GET /api/v1/connections/google/oauth/callback", routes.Integrations.GoogleCallback)
 	}
 	if routes.WOPI != nil {
 		mux.HandleFunc("GET /api/v1/wopi/files/{id}", routes.WOPI.CheckFileInfo)

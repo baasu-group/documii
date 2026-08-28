@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "python3 ../../plugins/builtin/libreoffice-extension/build_oxt.py && tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "tauri": "tauri"

@@ -34,3 +34,20 @@ func TestNewStoreRejectsInvalidKey(t *testing.T) {
 		t.Fatal("expected database error")
 	}
 }
+func TestCipherVersionAndLabelBinding(t *testing.T) {
+	cipher, err := NewCipher(2, map[int][]byte{1: bytes.Repeat([]byte{1}, 32), 2: bytes.Repeat([]byte{2}, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, nonce, version, err := cipher.Encrypt("google-oauth-state", []byte("verifier"))
+	if err != nil || version != 2 {
+		t.Fatalf("encrypt: version=%d err=%v", version, err)
+	}
+	plain, err := cipher.Decrypt("google-oauth-state", encrypted, nonce, version)
+	if err != nil || string(plain) != "verifier" {
+		t.Fatalf("decrypt: %q err=%v", plain, err)
+	}
+	if _, err := cipher.Decrypt("wrong-label", encrypted, nonce, version); err == nil {
+		t.Fatal("ciphertext was not bound to its purpose")
+	}
+}

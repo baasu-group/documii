@@ -91,6 +91,10 @@ export interface DocumentRecord {
   createdAt: string;
   updatedAt: string;
   content?: unknown;
+  externalProvider?: string;
+  externalFileId?: string;
+  externalUrl?: string;
+  externalConnectionId?: string;
 }
 
 export interface CreateNativeDocumentRequest {
@@ -209,6 +213,19 @@ export interface OrganizationRecord {
   createdAt: string;
   updatedAt: string;
 }
+export interface PlatformDocumentMetadata {
+  id: string;
+  title?: string;
+  family: DocumentFamily;
+  mimeType: string;
+  editorProvider: EditorProviderId;
+  storageMode: "managed" | "external";
+  status: string;
+  currentVersionId: string;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface OrganizationInvitation {
   id: string;
   organizationId: string;
@@ -218,6 +235,16 @@ export interface OrganizationInvitation {
   expiresAt: string;
   createdAt: string;
   acceptanceUrl?: string;
+  notificationError?: string;
+  lastSentAt?: string;
+}
+export interface OrganizationMember {
+  userId: string;
+  email?: string;
+  displayName: string;
+  role: AuthorizationRole;
+  status: "active" | "suspended";
+  joinedAt: string;
 }
 export interface OrganizationDashboard {
   organizations?: number;
@@ -247,6 +274,17 @@ export interface IntegrationStatus {
   capabilities: string[];
   airGapCompatible: boolean;
   description: string;
+}
+export interface IntegrationConnection {
+  id: string;
+  integrationId: string;
+  organizationId?: string;
+  userId?: string;
+  connectionType: string;
+  status: string;
+  safeMetadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
 }
 export type ReportDefinitionId =
   | "platform-organization-overview"

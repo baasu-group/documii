@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<description xmlns="http://openoffice.org/extensions/description/2006">
+  <identifier value="org.documi.libreoffice"/>
+  <version value="0.1.0"/>
+  <display-name><name lang="en">Documi Desktop Integration</name></display-name>
+  <publisher><name lang="en">Documi</name></publisher>
+</description>

@@ -10,8 +10,6 @@ use uuid::Uuid;
 
 const NATIVE_MIME: &str = "application/vnd.documi.document+json";
 const MAX_NATIVE_BYTES: usize = 5 * 1024 * 1024;
-const MIGRATION_VERSION: i64 = 1;
-
 const MIGRATION_1: &str = r#"
 CREATE TABLE IF NOT EXISTS local_workspaces (
   id TEXT PRIMARY KEY,
@@ -69,6 +67,50 @@ CREATE TRIGGER IF NOT EXISTS local_audit_no_delete BEFORE DELETE ON local_audit_
 BEGIN SELECT RAISE(ABORT, 'audit events are immutable'); END;
 "#;
 
+const MIGRATION_2: &str = r#"
+CREATE TABLE IF NOT EXISTS local_office_documents (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES local_workspaces(id),
+  title TEXT NOT NULL,
+  family TEXT NOT NULL CHECK(family IN ('text','spreadsheet','presentation')),
+  mime_type TEXT NOT NULL,
+  editor_provider TEXT NOT NULL CHECK(editor_provider = 'libreoffice-desktop'),
+  storage_mode TEXT NOT NULL CHECK(storage_mode = 'managed'),
+  current_version_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS local_office_versions (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES local_office_documents(id),
+  parent_version_id TEXT REFERENCES local_office_versions(id),
+  storage_object_id TEXT NOT NULL REFERENCES local_storage_objects(id),
+  version_number INTEGER NOT NULL CHECK(version_number > 0),
+  actor_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  UNIQUE(document_id, version_number)
+);
+CREATE TABLE IF NOT EXISTS local_office_working_copies (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES local_office_documents(id),
+  base_version_id TEXT NOT NULL REFERENCES local_office_versions(id),
+  relative_path TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status IN ('active','saved','closed')) DEFAULT 'active',
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS local_editor_extensions (
+  id TEXT PRIMARY KEY,
+  installed_version TEXT,
+  last_checked_at TEXT,
+  last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS local_office_documents_workspace_updated
+  ON local_office_documents(workspace_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS local_office_working_copies_document
+  ON local_office_working_copies(document_id, status);
+"#;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalWorkspace {
@@ -123,12 +165,12 @@ pub struct SaveRequest {
     pub idempotency_key: String,
 }
 
-struct Paths {
-    root: PathBuf,
-    database: PathBuf,
+pub(crate) struct Paths {
+    pub(crate) root: PathBuf,
+    pub(crate) database: PathBuf,
 }
 
-fn paths(app: &AppHandle) -> Result<Paths, String> {
+pub(crate) fn paths(app: &AppHandle) -> Result<Paths, String> {
     let root = app
         .path()
         .app_data_dir()
@@ -150,38 +192,41 @@ fn migrate(connection: &Connection) -> Result<(), String> {
              );",
         )
         .map_err(|error| error.to_string())?;
-    let applied = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM local_schema_migrations WHERE version=?1)",
-            [MIGRATION_VERSION],
-            |row| row.get::<_, bool>(0),
-        )
-        .map_err(|error| error.to_string())?;
-    if applied {
-        return Ok(());
+    for (version, migration) in [(1_i64, MIGRATION_1), (2_i64, MIGRATION_2)] {
+        let applied = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM local_schema_migrations WHERE version=?1)",
+                [version],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if applied {
+            continue;
+        }
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute_batch(migration)
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "INSERT INTO local_schema_migrations(version) VALUES(?1)",
+                [version],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
     }
-    let transaction = connection
-        .unchecked_transaction()
-        .map_err(|error| error.to_string())?;
-    transaction
-        .execute_batch(MIGRATION_1)
-        .map_err(|error| error.to_string())?;
-    transaction
-        .execute(
-            "INSERT INTO local_schema_migrations(version) VALUES(?1)",
-            [MIGRATION_VERSION],
-        )
-        .map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())
+    Ok(())
 }
 
-fn connect(app: &AppHandle) -> Result<(Connection, Paths), String> {
+pub(crate) fn connect(app: &AppHandle) -> Result<(Connection, Paths), String> {
     let paths = paths(app)?;
     let connection = connect_paths(&paths)?;
     Ok((connection, paths))
 }
 
-fn connect_paths(paths: &Paths) -> Result<Connection, String> {
+pub(crate) fn connect_paths(paths: &Paths) -> Result<Connection, String> {
     let connection = Connection::open(&paths.database).map_err(|error| error.to_string())?;
     connection
         .busy_timeout(Duration::from_secs(5))
@@ -196,7 +241,7 @@ fn connect_paths(paths: &Paths) -> Result<Connection, String> {
     Ok(connection)
 }
 
-fn validate_uuid(value: &str) -> Result<(), String> {
+pub(crate) fn validate_uuid(value: &str) -> Result<(), String> {
     Uuid::parse_str(value)
         .map(|_| ())
         .map_err(|_| "invalid_identifier".to_string())
@@ -322,7 +367,7 @@ fn read_document(
     Ok(document)
 }
 
-fn audit(
+pub(crate) fn audit(
     transaction: &Transaction<'_>,
     event_type: &str,
     workspace_id: &str,
@@ -379,8 +424,11 @@ pub fn local_documents_list(
     let mut statement = connection
         .prepare(
             "SELECT id,workspace_id,title,family,mime_type,editor_provider,storage_mode,
-                    current_version_id,created_at,updated_at
-             FROM local_documents WHERE workspace_id=?1 ORDER BY updated_at DESC,id",
+                    current_version_id,created_at,updated_at FROM local_documents WHERE workspace_id=?1
+             UNION ALL
+             SELECT id,workspace_id,title,family,mime_type,editor_provider,storage_mode,
+                    current_version_id,created_at,updated_at FROM local_office_documents WHERE workspace_id=?1
+             ORDER BY updated_at DESC,id",
         )
         .map_err(|error| error.to_string())?;
     let rows = statement
@@ -649,7 +697,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, MIGRATION_VERSION);
+        assert_eq!(version, 2);
         connection
             .execute(
                 "INSERT INTO local_audit_events(id,event_type,workspace_id,actor_id,resource_id)

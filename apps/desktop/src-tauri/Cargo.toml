@@ -20,3 +20,4 @@ tauri = { version = "2", features = [] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"

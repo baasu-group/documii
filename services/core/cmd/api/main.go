@@ -14,9 +14,11 @@ import (
 	"github.com/documi/documi/services/core/internal/modules/documents/editors"
 	"github.com/documi/documi/services/core/internal/modules/documents/editors/collabora"
 	"github.com/documi/documi/services/core/internal/modules/documents/templates"
+	"github.com/documi/documi/services/core/internal/modules/integrations"
 	"github.com/documi/documi/services/core/internal/modules/organizations"
 	"github.com/documi/documi/services/core/internal/modules/permissions"
 	"github.com/documi/documi/services/core/internal/modules/reporting"
+	secretmodule "github.com/documi/documi/services/core/internal/modules/secrets"
 	"github.com/documi/documi/services/core/internal/modules/storage"
 	"github.com/documi/documi/services/core/internal/modules/system"
 	platformauth "github.com/documi/documi/services/core/internal/platform/auth"
@@ -42,7 +44,7 @@ func main() {
 	systemService := system.NewService(version, configValue.Environment, configValue.AirGapped)
 	var authenticator platformauth.Authenticator
 	platformAdminGroups := configValue.Auth.PlatformAdminGroups
-	if configValue.Auth.Mode == "development" && len(platformAdminGroups) == 0 {
+	if configValue.Auth.Mode == "development" && configValue.Auth.DevelopmentPlatformAdmin && len(platformAdminGroups) == 0 {
 		platformAdminGroups = []string{"documi-platform-admin"}
 	}
 	if configValue.Auth.Mode == "oidc" {
@@ -53,7 +55,11 @@ func main() {
 		}
 		authenticator = value
 	} else {
-		authenticator = platformauth.DevelopmentAuthenticator{Subject: platformauth.Subject{ID: configValue.Auth.DevelopmentSubject, Issuer: "documi-development", ExternalSubject: configValue.Auth.DevelopmentSubject, Email: configValue.Auth.DevelopmentEmail, DisplayName: configValue.Auth.DevelopmentName, EmailVerified: true, Groups: platformAdminGroups}}
+		groups := []string(nil)
+		if configValue.Auth.DevelopmentPlatformAdmin {
+			groups = platformAdminGroups
+		}
+		authenticator = platformauth.DevelopmentAuthenticator{Subject: platformauth.Subject{ID: configValue.Auth.DevelopmentSubject, Issuer: "documi-development", ExternalSubject: configValue.Auth.DevelopmentSubject, Email: configValue.Auth.DevelopmentEmail, DisplayName: configValue.Auth.DevelopmentName, EmailVerified: true, Groups: groups}}
 	}
 	var documentHandler *documents.Handler
 	var documentService *documents.Service
@@ -164,6 +170,7 @@ func main() {
 	var administrationHandler *administration.Handler
 	var organizationHandler *organizations.Handler
 	var reportingHandler *reporting.Handler
+	var integrationHandler *integrations.Handler
 	if databasePool != nil {
 		administrationService := administration.NewService(databasePool, permissions.NewAuthorizer(databasePool), func(ctx context.Context, family, providerID string) error {
 			status, err := editorService.Provider(ctx, editors.ProviderID(providerID))
@@ -178,7 +185,31 @@ func main() {
 			return editors.ErrProviderUnavailable
 		})
 		administrationHandler = administration.NewHandler(administrationService)
-		organizationHandler = organizations.NewHandler(organizations.NewService(databasePool, platformAdminGroups, configValue.Environment == "development", configValue.PublicURL))
+		organizationService := organizations.NewService(databasePool, platformAdminGroups, configValue.Environment == "development", configValue.PublicURL)
+		if configValue.Notifications.SMTPEnabled {
+			notifier, notificationErr := organizations.NewSMTPNotifier(organizations.SMTPConfig{Address: configValue.Notifications.SMTPAddress, Host: configValue.Notifications.SMTPHost, Username: configValue.Notifications.SMTPUsername, Password: configValue.Notifications.SMTPPassword, From: configValue.Notifications.SMTPFrom})
+			if notificationErr != nil {
+				logger.Error("configure invitation SMTP", "error", notificationErr)
+				os.Exit(1)
+			}
+			organizationService.WithNotifier(notifier)
+		}
+		organizationHandler = organizations.NewHandler(organizationService)
+		integrationService := integrations.NewService(databasePool, configValue.AirGapped, configValue.Integrations.GoogleEnabled, organizationService.IsPlatformAdmin).WithDocuments(documentService)
+		if configValue.Integrations.GoogleEnabled {
+			cipher, secretErr := secretmodule.NewCipher(configValue.Secrets.KeyVersion, map[int][]byte{configValue.Secrets.KeyVersion: configValue.Secrets.MasterKey})
+			if secretErr != nil {
+				logger.Error("configure SecretStore cipher", "error", secretErr)
+				os.Exit(1)
+			}
+			secretStore, secretErr := secretmodule.NewStore(databasePool, configValue.Secrets.KeyVersion, map[int][]byte{configValue.Secrets.KeyVersion: configValue.Secrets.MasterKey})
+			if secretErr != nil {
+				logger.Error("configure SecretStore", "error", secretErr)
+				os.Exit(1)
+			}
+			integrationService.WithGoogle(integrations.NewGoogleConnector(databasePool, secretStore, cipher, configValue.Integrations.GoogleClientID, configValue.Integrations.GoogleClientSecret, configValue.Integrations.GoogleRedirectURL, configValue.PublicURL))
+		}
+		integrationHandler = integrations.NewHandler(integrationService)
 		reportingHandler = reporting.NewHandler(reporting.NewService(databasePool, documentService))
 	}
 	var readiness httpserver.Readiness = httpserver.StaticReadiness(true)
@@ -202,6 +233,7 @@ func main() {
 			Administration: administrationHandler,
 			Organizations:  organizationHandler,
 			Reporting:      reportingHandler,
+			Integrations:   integrationHandler,
 		}, readiness),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,

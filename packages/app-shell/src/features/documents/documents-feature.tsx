@@ -167,7 +167,17 @@ export function DocumentsFeature({
       )}
       {status && <p className="text-sm text-forest">{status}</p>}
       <NewDocumentMenu
-        providers={providers.length ? providers : [...fallbackProviders]}
+        providers={
+          localOnly && gateway?.createOffice
+            ? (providers.length ? providers : fallbackProviders).map((provider) =>
+                provider.id === "libreoffice-desktop"
+                  ? { ...provider, available: true, capabilities: [...new Set([...provider.capabilities, "create" as const])] }
+                  : provider,
+              )
+            : providers.length
+              ? providers
+              : [...fallbackProviders]
+        }
         onCreateNative={createNative}
         onCreateOffice={
           gateway?.createOffice && workspace

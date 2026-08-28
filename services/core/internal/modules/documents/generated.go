@@ -68,6 +68,13 @@ func (service *Service) CreateGenerated(ctx context.Context, request GeneratedDo
 	} else if found {
 		return service.Get(ctx, request.ActorID, existing.String(), false)
 	}
+	providerID := "native"
+	if request.Family == "spreadsheet" && service.editors != nil {
+		providerID, err = service.editors.Select(ctx, organizationID.String(), request.Family)
+		if err != nil {
+			return Document{}, err
+		}
+	}
 	documentID, versionID, objectID, folderID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	key := path.Join("documents", organizationID.String(), workspaceID.String(), documentID.String(), versionID.String(), "report."+request.Extension)
 	object, err := service.storage.Put(ctx, key, bytes.NewReader(request.Content))
@@ -93,7 +100,7 @@ func (service *Service) CreateGenerated(ctx context.Context, request GeneratedDo
 	if err != nil {
 		return Document{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO documents(id,organization_id,workspace_id,folder_id,title,family,mime_type,editor_provider,storage_mode,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,'native','managed',$8)`, documentID, organizationID, workspaceID, folderID, title, request.Family, request.MIMEType, actor); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO documents(id,organization_id,workspace_id,folder_id,title,family,mime_type,editor_provider,storage_mode,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'managed',$9)`, documentID, organizationID, workspaceID, folderID, title, request.Family, request.MIMEType, providerID, actor); err != nil {
 		return Document{}, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO storage_objects(id,provider,storage_key,sha256,size,content_type) VALUES($1,'filesystem',$2,$3,$4,$5)`, objectID, key, object.SHA256, object.Size, request.MIMEType); err != nil {

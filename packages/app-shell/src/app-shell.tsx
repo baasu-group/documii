@@ -255,16 +255,21 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
               Platform
             </button>
           )}
-          {session?.activeOrganizationId && (
-            <button
-              type="button"
-              onClick={() => navigate(`/organizations/${session.activeOrganizationId}/dashboard`)}
-              className={`flex min-w-max items-center rounded-xl border-0 px-3 py-2.5 text-sm transition md:mb-1 md:w-full ${path.startsWith("/organizations/") ? "bg-moss font-semibold text-forest" : "bg-transparent font-medium text-black/55 hover:bg-black/[0.035]"}`}
-            >
-              <Icon name="home" className="mr-3 h-[18px] w-[18px]" />
-              Organization
-            </button>
-          )}
+          {session?.activeOrganizationId &&
+            session.organizations.some(
+              (item) =>
+                item.id === session.activeOrganizationId &&
+                (item.role === "owner" || item.role === "admin"),
+            ) && (
+              <button
+                type="button"
+                onClick={() => navigate(`/organizations/${session.activeOrganizationId}/dashboard`)}
+                className={`flex min-w-max items-center rounded-xl border-0 px-3 py-2.5 text-sm transition md:mb-1 md:w-full ${path.startsWith("/organizations/") ? "bg-moss font-semibold text-forest" : "bg-transparent font-medium text-black/55 hover:bg-black/[0.035]"}`}
+              >
+                <Icon name="home" className="mr-3 h-[18px] w-[18px]" />
+                Organization
+              </button>
+            )}
           {navigation.map((item) => (
             <button
               key={item.id}

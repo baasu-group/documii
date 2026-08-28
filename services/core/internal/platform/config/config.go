@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"os"
@@ -22,11 +23,15 @@ type Config struct {
 	Editors           EditorConfig
 	Auth              AuthConfig
 	PublicURL         string
+	Notifications     NotificationConfig
+	Integrations      IntegrationConfig
+	Secrets           SecretConfig
 }
 
 type AuthConfig struct {
 	Mode, Issuer, DiscoveryURL, Audience, ClientID, DevelopmentSubject, DevelopmentEmail, DevelopmentName, PlatformGroupClaim string
 	PlatformAdminGroups                                                                                                       []string
+	DevelopmentPlatformAdmin                                                                                                  bool
 }
 
 type EditorConfig struct {
@@ -37,6 +42,18 @@ type EditorConfig struct {
 	OnlyOfficeEnabled   bool
 	OnlyOfficeURL       string
 	OnlyOfficeJWTSecret string
+}
+type NotificationConfig struct {
+	SMTPEnabled                                                 bool
+	SMTPAddress, SMTPHost, SMTPUsername, SMTPPassword, SMTPFrom string
+}
+type IntegrationConfig struct {
+	GoogleEnabled                                         bool
+	GoogleClientID, GoogleClientSecret, GoogleRedirectURL string
+}
+type SecretConfig struct {
+	MasterKey  []byte
+	KeyVersion int
 }
 
 func Load() (Config, error) {
@@ -58,6 +75,29 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	smtpEnabled, err := booleanEnvironment("DOCUMI_SMTP_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	developmentPlatformAdmin, err := booleanEnvironment("DOCUMI_DEV_PLATFORM_ADMIN", false)
+	if err != nil {
+		return Config{}, err
+	}
+	googleEnabled, err := booleanEnvironment("GOOGLE_WORKSPACE_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	secretVersion, err := strconv.Atoi(envOrDefault("DOCUMI_SECRET_KEY_VERSION", "1"))
+	if err != nil || secretVersion < 1 {
+		return Config{}, fmt.Errorf("DOCUMI_SECRET_KEY_VERSION must be a positive integer")
+	}
+	var masterKey []byte
+	if encoded := strings.TrimSpace(os.Getenv("DOCUMI_SECRET_MASTER_KEY")); encoded != "" {
+		masterKey, err = base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(masterKey) != 32 {
+			return Config{}, fmt.Errorf("DOCUMI_SECRET_MASTER_KEY must be base64 for exactly 32 bytes")
+		}
+	}
 
 	config := Config{
 		Environment:       environment,
@@ -70,7 +110,7 @@ func Load() (Config, error) {
 		AirGapped:         airGapped,
 		ShutdownTimeout:   10 * time.Second,
 		PublicURL:         envOrDefault("DOCUMI_PUBLIC_URL", "http://localhost:8080"),
-		Auth:              AuthConfig{Mode: envOrDefault("DOCUMI_AUTH_MODE", authMode), Issuer: os.Getenv("DOCUMI_OIDC_ISSUER"), DiscoveryURL: os.Getenv("DOCUMI_OIDC_DISCOVERY_URL"), Audience: envOrDefault("DOCUMI_OIDC_AUDIENCE", "documi-api"), ClientID: envOrDefault("DOCUMI_OIDC_CLIENT_ID", "documi-web"), DevelopmentSubject: envOrDefault("DOCUMI_DEV_SUBJECT", "local-admin"), DevelopmentEmail: envOrDefault("DOCUMI_DEV_EMAIL", "admin@documi.local"), DevelopmentName: envOrDefault("DOCUMI_DEV_NAME", "Local administrator"), PlatformGroupClaim: envOrDefault("DOCUMI_PLATFORM_GROUP_CLAIM", "groups"), PlatformAdminGroups: splitList(os.Getenv("DOCUMI_PLATFORM_ADMIN_GROUPS"))},
+		Auth:              AuthConfig{Mode: envOrDefault("DOCUMI_AUTH_MODE", authMode), Issuer: os.Getenv("DOCUMI_OIDC_ISSUER"), DiscoveryURL: os.Getenv("DOCUMI_OIDC_DISCOVERY_URL"), Audience: envOrDefault("DOCUMI_OIDC_AUDIENCE", "documi-api"), ClientID: envOrDefault("DOCUMI_OIDC_CLIENT_ID", "documi-web"), DevelopmentSubject: envOrDefault("DOCUMI_DEV_SUBJECT", "local-admin"), DevelopmentEmail: envOrDefault("DOCUMI_DEV_EMAIL", "admin@documi.local"), DevelopmentName: envOrDefault("DOCUMI_DEV_NAME", "Local administrator"), PlatformGroupClaim: envOrDefault("DOCUMI_PLATFORM_GROUP_CLAIM", "groups"), PlatformAdminGroups: splitList(os.Getenv("DOCUMI_PLATFORM_ADMIN_GROUPS")), DevelopmentPlatformAdmin: developmentPlatformAdmin},
 		Editors: EditorConfig{
 			TokenSecret:         os.Getenv("DOCUMI_EDITOR_TOKEN_SECRET"),
 			CollaboraEnabled:    collaboraEnabled,
@@ -80,6 +120,9 @@ func Load() (Config, error) {
 			OnlyOfficeURL:       os.Getenv("ONLYOFFICE_URL"),
 			OnlyOfficeJWTSecret: os.Getenv("ONLYOFFICE_JWT_SECRET"),
 		},
+		Notifications: NotificationConfig{SMTPEnabled: smtpEnabled, SMTPAddress: os.Getenv("DOCUMI_SMTP_ADDRESS"), SMTPHost: os.Getenv("DOCUMI_SMTP_HOST"), SMTPUsername: os.Getenv("DOCUMI_SMTP_USERNAME"), SMTPPassword: os.Getenv("DOCUMI_SMTP_PASSWORD"), SMTPFrom: os.Getenv("DOCUMI_SMTP_FROM")},
+		Integrations:  IntegrationConfig{GoogleEnabled: googleEnabled, GoogleClientID: os.Getenv("GOOGLE_OAUTH_CLIENT_ID"), GoogleClientSecret: os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"), GoogleRedirectURL: os.Getenv("GOOGLE_OAUTH_REDIRECT_URL")},
+		Secrets:       SecretConfig{MasterKey: masterKey, KeyVersion: secretVersion},
 	}
 
 	if strings.TrimSpace(config.HTTPAddress) == "" {
@@ -114,6 +157,23 @@ func Load() (Config, error) {
 			config.Auth.DiscoveryURL = config.Auth.Issuer
 		}
 		if err := requireHTTPURL("DOCUMI_OIDC_DISCOVERY_URL", config.Auth.DiscoveryURL); err != nil {
+			return Config{}, err
+		}
+	}
+	if config.Notifications.SMTPEnabled && (strings.TrimSpace(config.Notifications.SMTPAddress) == "" || strings.TrimSpace(config.Notifications.SMTPHost) == "" || !strings.Contains(config.Notifications.SMTPFrom, "@")) {
+		return Config{}, fmt.Errorf("DOCUMI SMTP address, host, and from are required when SMTP is enabled")
+	}
+	if config.Integrations.GoogleEnabled {
+		if config.AirGapped {
+			return Config{}, fmt.Errorf("Google Workspace cannot be enabled when AIR_GAPPED=true")
+		}
+		if strings.TrimSpace(config.Integrations.GoogleClientID) == "" || strings.TrimSpace(config.Integrations.GoogleClientSecret) == "" {
+			return Config{}, fmt.Errorf("Google OAuth client ID and secret are required when Google Workspace is enabled")
+		}
+		if len(config.Secrets.MasterKey) != 32 {
+			return Config{}, fmt.Errorf("DOCUMI_SECRET_MASTER_KEY is required when Google Workspace is enabled")
+		}
+		if err := requireHTTPURL("GOOGLE_OAUTH_REDIRECT_URL", config.Integrations.GoogleRedirectURL); err != nil {
 			return Config{}, err
 		}
 	}

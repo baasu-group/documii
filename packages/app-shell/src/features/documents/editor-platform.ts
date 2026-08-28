@@ -4,9 +4,25 @@ export interface LibreOfficeStatus {
   executable?: string;
 }
 
+export interface LibreOfficeExtensionStatus {
+  installed: boolean;
+  version?: string;
+  packageAvailable: boolean;
+  lastError?: string;
+}
+
+export interface LibreOfficeWorkingCopy {
+  id: string;
+  documentId: string;
+  baseVersionId: string;
+  fileName: string;
+}
+
 export interface EditorPlatform {
   kind: "web" | "desktop";
   checkLibreOffice?: () => Promise<LibreOfficeStatus>;
+  checkLibreOfficeExtension?: () => Promise<LibreOfficeExtensionStatus>;
+  installLibreOfficeExtension?: (confirmed: boolean) => Promise<LibreOfficeExtensionStatus>;
   documents?: DocumentGateway;
   administration?: AdministrationGateway;
   organizations?: OrganizationGateway;
@@ -34,6 +50,43 @@ export interface OrganizationGateway {
     filters: Record<string, string>,
   ): Promise<ReportRun>;
   exportReport(runId: string): Promise<ReportRun>;
+  members(organizationId: string): Promise<OrganizationMember[]>;
+  invitations(organizationId: string): Promise<OrganizationInvitation[]>;
+  invite(
+    organizationId: string,
+    email: string,
+    role: AuthorizationRole,
+  ): Promise<OrganizationInvitation>;
+  updateMember(
+    organizationId: string,
+    userId: string,
+    value: { role?: AuthorizationRole; status?: "active" | "suspended" },
+  ): Promise<void>;
+  removeMember(organizationId: string, userId: string): Promise<void>;
+  resendInvitation(id: string): Promise<OrganizationInvitation>;
+  revokeInvitation(id: string): Promise<void>;
+  settings(organizationId: string): Promise<OrganizationRecord>;
+  updateSettings(
+    organizationId: string,
+    shareDocumentTitlesWithPlatformAdmins: boolean,
+  ): Promise<OrganizationRecord>;
+  integrations(): Promise<IntegrationStatus[]>;
+  connections(organizationId: string): Promise<IntegrationConnection[]>;
+  setIntegrationEnabled(id: string, enabled: boolean): Promise<IntegrationStatus>;
+  deleteConnection(id: string): Promise<void>;
+  platformDocuments(organizationId: string): Promise<PlatformDocumentMetadata[]>;
+  startGoogleOrganizationConnection(
+    organizationId: string,
+  ): Promise<{ authorizationUrl: string; expiresAt: string }>;
+  createGoogleDocument(
+    workspaceId: string,
+    value: {
+      connectionId: string;
+      family: "text" | "spreadsheet" | "presentation";
+      title: string;
+      externalFileId?: string;
+    },
+  ): Promise<DocumentRecord>;
 }
 
 export interface AdministrationGateway {
@@ -99,6 +152,11 @@ export interface DocumentGateway {
   get(documentId: string): Promise<DocumentRecord>;
   saveNative(request: SaveNativeDocumentRequest): Promise<DocumentRecord>;
   versions(documentId: string): Promise<DocumentVersion[]>;
+  openInLibreOffice?(documentId: string): Promise<LibreOfficeWorkingCopy>;
+  saveLibreOfficeWorkingCopy?(
+    workingCopyId: string,
+    idempotencyKey: string,
+  ): Promise<DocumentRecord>;
 }
 import type {
   CreateNativeDocumentRequest,
@@ -123,4 +181,8 @@ import type {
   OrganizationInvitation,
   ReportDefinition,
   ReportRun,
+  OrganizationMember,
+  IntegrationStatus,
+  IntegrationConnection,
+  PlatformDocumentMetadata,
 } from "@documi/shared-types";

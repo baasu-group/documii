@@ -399,7 +399,33 @@ For `DOCUMI_AUTH_MODE=development`, use `--issuer documi-development` and set `-
 
 To grant the exact bootstrapped identity platform administration, add `--platform-admin`. In OIDC deployments, an alternative exact group allowlist is configured with `DOCUMI_PLATFORM_GROUP_CLAIM` (default `groups`) and comma-separated `DOCUMI_PLATFORM_ADMIN_GROUPS`. Realm or client role names are never converted into Documi permissions.
 
-After migration `000003`, open `/platform` for deployment metrics and `/platform/organizations` to create, suspend, or reactivate organizations. Organization routes live below `/organizations/<id>/...`; `/dashboard` is the member home. In development only, organization creation returns a copyable one-time invitation URL. Production deployments must configure the notification adapter before invitations are enabled.
+Development identities are not platform administrators by default. For an isolated local administrator session only, set `DOCUMI_DEV_PLATFORM_ADMIN=true`; never use this flag outside development/test.
+
+After migrations `000003`–`000005`, open `/platform` for deployment metrics and trusted installation policy, or `/platform/organizations` to create, inspect, suspend, and reactivate organizations. Organization routes live below `/organizations/<id>/...`; `/dashboard` is the member home. Platform metadata inspection is audited, hides titles by default, and never returns document bytes.
+
+In development, invitation creation returns a copyable one-time URL. For production SMTP delivery configure:
+
+```sh
+DOCUMI_SMTP_ENABLED=true
+DOCUMI_SMTP_ADDRESS='smtp.internal.example:587'
+DOCUMI_SMTP_HOST='smtp.internal.example'
+DOCUMI_SMTP_USERNAME='documi'
+DOCUMI_SMTP_PASSWORD='REPLACE_FROM_SECRET_MANAGER'
+DOCUMI_SMTP_FROM='Documi <documi@example.test>'
+```
+
+Google Workspace is optional and is rejected when `AIR_GAPPED=true`. Generate a 32-byte SecretStore key once through the deployment secret manager and provide its base64 value:
+
+```sh
+GOOGLE_WORKSPACE_ENABLED=true
+GOOGLE_OAUTH_CLIENT_ID='REPLACE.apps.googleusercontent.com'
+GOOGLE_OAUTH_CLIENT_SECRET='REPLACE_FROM_SECRET_MANAGER'
+GOOGLE_OAUTH_REDIRECT_URL='https://documi.example/api/v1/connections/google/oauth/callback'
+DOCUMI_SECRET_KEY_VERSION=1
+DOCUMI_SECRET_MASTER_KEY='REPLACE_BASE64_32_BYTE_KEY'
+```
+
+The OAuth flow requests offline access with PKCE and `drive.file`. Refresh tokens are encrypted and never returned. Picker access tokens are short-lived and must remain only in browser memory.
 
 ### Use PostgreSQL on another private-network server
 

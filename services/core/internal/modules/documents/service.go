@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -37,22 +38,26 @@ var (
 )
 
 type Document struct {
-	ID               string          `json:"id"`
-	WorkspaceID      string          `json:"workspaceId"`
-	FolderID         *string         `json:"folderId,omitempty"`
-	Title            string          `json:"title"`
-	Family           string          `json:"family"`
-	MIMEType         string          `json:"mimeType"`
-	EditorProvider   string          `json:"editorProvider"`
-	StorageMode      string          `json:"storageMode"`
-	CurrentVersionID string          `json:"currentVersionId"`
-	CreatedAt        time.Time       `json:"createdAt"`
-	UpdatedAt        time.Time       `json:"updatedAt"`
-	Content          json.RawMessage `json:"content,omitempty"`
-	organizationID   uuid.UUID
-	storageKey       string
-	size             int64
-	sha256           string
+	ID                   string          `json:"id"`
+	WorkspaceID          string          `json:"workspaceId"`
+	FolderID             *string         `json:"folderId,omitempty"`
+	Title                string          `json:"title"`
+	Family               string          `json:"family"`
+	MIMEType             string          `json:"mimeType"`
+	EditorProvider       string          `json:"editorProvider"`
+	StorageMode          string          `json:"storageMode"`
+	CurrentVersionID     string          `json:"currentVersionId"`
+	ExternalProvider     *string         `json:"externalProvider,omitempty"`
+	ExternalFileID       *string         `json:"externalFileId,omitempty"`
+	ExternalURL          *string         `json:"externalUrl,omitempty"`
+	ExternalConnectionID *string         `json:"externalConnectionId,omitempty"`
+	CreatedAt            time.Time       `json:"createdAt"`
+	UpdatedAt            time.Time       `json:"updatedAt"`
+	Content              json.RawMessage `json:"content,omitempty"`
+	organizationID       uuid.UUID
+	storageKey           string
+	size                 int64
+	sha256               string
 }
 
 func (document Document) Size() int64 { return document.size }
@@ -83,6 +88,14 @@ type CreateRequest struct {
 type SaveRequest struct {
 	ActorID, DocumentID, BaseVersionID, IdempotencyKey string
 	Content                                            json.RawMessage
+}
+
+type CreateExternalRequest struct {
+	ActorID, WorkspaceID, IdempotencyKey, Title string
+	FolderID                                    *string
+	Family, MIMEType, Provider, ExternalFileID  string
+	ExternalURL                                 string
+	ExternalConnectionID                        string
 }
 
 type Service struct {
@@ -151,7 +164,8 @@ WITH RECURSIVE ancestry(document_id,folder_id,parent_id) AS (
  UNION ALL SELECT a.document_id,f.id,f.parent_id FROM ancestry a JOIN folders f ON f.id=a.parent_id
 )
 SELECT d.id,d.workspace_id,d.folder_id,d.title,d.family,d.mime_type,d.editor_provider,d.storage_mode,
-       d.current_version_id,d.created_at,d.updated_at,d.organization_id
+       COALESCE(d.current_version_id::text,''),d.created_at,d.updated_at,d.organization_id,
+       d.external_provider,d.external_file_id,d.external_url
 FROM documents d WHERE d.workspace_id=$2 AND EXISTS (
  SELECT 1 FROM authorization_grants g
  JOIN organizations o ON o.id=g.organization_id AND o.status='active'
@@ -265,13 +279,95 @@ VALUES($1,$2,$3,$4,$5,'native',$6,'native','managed',$7,$8)`, documentID, organi
 	return service.Get(ctx, request.ActorID, documentID.String(), true)
 }
 
+func (service *Service) CreateExternal(ctx context.Context, request CreateExternalRequest) (Document, error) {
+	if !validIdempotencyKey(request.IdempotencyKey) {
+		return Document{}, ErrIdempotencyNeeded
+	}
+	title := strings.TrimSpace(request.Title)
+	if title == "" || utf8.RuneCountInString(title) > 255 || request.ExternalFileID == "" {
+		return Document{}, ErrInvalidDocument
+	}
+	parsedURL, err := url.ParseRequestURI(request.ExternalURL)
+	if err != nil || parsedURL.Scheme != "https" || parsedURL.Host == "" {
+		return Document{}, ErrInvalidDocument
+	}
+	validProvider := (request.Provider == "google-docs" && request.Family == "text") ||
+		(request.Provider == "google-sheets" && request.Family == "spreadsheet") ||
+		(request.Provider == "google-slides" && request.Family == "presentation")
+	if !validProvider {
+		return Document{}, ErrInvalidDocument
+	}
+	connectionID, err := uuid.Parse(request.ExternalConnectionID)
+	if err != nil {
+		return Document{}, ErrInvalidDocument
+	}
+	actor, err := uuid.Parse(request.ActorID)
+	if err != nil {
+		return Document{}, ErrForbidden
+	}
+	workspaceID, err := uuid.Parse(request.WorkspaceID)
+	if err != nil {
+		return Document{}, ErrNotFound
+	}
+	var organizationID uuid.UUID
+	if err = service.pool.QueryRow(ctx, "SELECT organization_id FROM workspaces WHERE id=$1", workspaceID).Scan(&organizationID); errors.Is(err, pgx.ErrNoRows) {
+		return Document{}, ErrNotFound
+	} else if err != nil {
+		return Document{}, err
+	}
+	var folderID *uuid.UUID
+	if request.FolderID != nil {
+		value, parseErr := uuid.Parse(*request.FolderID)
+		if parseErr != nil {
+			return Document{}, ErrNotFound
+		}
+		folderID = &value
+	}
+	allowed, err := service.authorizer.Allows(ctx, request.ActorID, permissions.Resource{OrganizationID: organizationID, WorkspaceID: workspaceID, FolderID: folderID}, permissions.CanCreate)
+	if err != nil || !allowed {
+		if err != nil {
+			return Document{}, err
+		}
+		return Document{}, ErrForbidden
+	}
+	if existing, ok, err := service.idempotentDocument(ctx, organizationID, actor, request.IdempotencyKey, "document.external.create"); err != nil {
+		return Document{}, err
+	} else if ok {
+		return service.Get(ctx, request.ActorID, existing.String(), false)
+	}
+	documentID := uuid.New()
+	tx, err := service.pool.Begin(ctx)
+	if err != nil {
+		return Document{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO documents(id,organization_id,workspace_id,folder_id,title,family,mime_type,editor_provider,storage_mode,external_provider,external_file_id,external_url,external_connection_id,created_by)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,'external','google-workspace',$9,$10,$11,$12)`, documentID, organizationID, workspaceID, folderID, title, request.Family, request.MIMEType, request.Provider, request.ExternalFileID, request.ExternalURL, connectionID, actor); err != nil {
+		return Document{}, err
+	}
+	if _, err = tx.Exec(ctx, "INSERT INTO idempotency_keys(organization_id,actor_id,key,operation,resource_id) VALUES($1,$2,$3,'document.external.create',$4)", organizationID, actor, request.IdempotencyKey, documentID); err != nil {
+		return Document{}, err
+	}
+	for _, event := range []string{"document.external.created", "document.google.created"} {
+		if err = appendAudit(ctx, tx, event, organizationID, workspaceID, actor, documentID); err != nil {
+			return Document{}, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Document{}, err
+	}
+	return service.Get(ctx, request.ActorID, documentID.String(), false)
+}
+
 func (service *Service) Get(ctx context.Context, actorID, documentID string, includeContent bool) (Document, error) {
 	id, err := uuid.Parse(documentID)
 	if err != nil {
 		return Document{}, ErrNotFound
 	}
-	row := service.pool.QueryRow(ctx, `SELECT d.id,d.workspace_id,d.folder_id,d.title,d.family,d.mime_type,d.editor_provider,d.storage_mode,d.current_version_id,d.created_at,d.updated_at,d.organization_id,o.storage_key,o.size,o.sha256
-FROM documents d JOIN document_versions v ON v.id=d.current_version_id JOIN storage_objects o ON o.id=v.storage_object_id WHERE d.id=$1`, id)
+	row := service.pool.QueryRow(ctx, `SELECT d.id,d.workspace_id,d.folder_id,d.title,d.family,d.mime_type,d.editor_provider,d.storage_mode,
+COALESCE(d.current_version_id::text,''),d.created_at,d.updated_at,d.organization_id,
+COALESCE(o.storage_key,''),COALESCE(o.size,0),COALESCE(o.sha256,''),d.external_provider,d.external_file_id,d.external_url
+FROM documents d LEFT JOIN document_versions v ON v.id=d.current_version_id LEFT JOIN storage_objects o ON o.id=v.storage_object_id WHERE d.id=$1`, id)
 	value, err := scanDocumentWithStorage(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Document{}, ErrNotFound
@@ -503,12 +599,12 @@ type scanner interface{ Scan(...any) error }
 
 func scanDocument(row scanner) (Document, error) {
 	var d Document
-	err := row.Scan(&d.ID, &d.WorkspaceID, &d.FolderID, &d.Title, &d.Family, &d.MIMEType, &d.EditorProvider, &d.StorageMode, &d.CurrentVersionID, &d.CreatedAt, &d.UpdatedAt, &d.organizationID)
+	err := row.Scan(&d.ID, &d.WorkspaceID, &d.FolderID, &d.Title, &d.Family, &d.MIMEType, &d.EditorProvider, &d.StorageMode, &d.CurrentVersionID, &d.CreatedAt, &d.UpdatedAt, &d.organizationID, &d.ExternalProvider, &d.ExternalFileID, &d.ExternalURL)
 	return d, err
 }
 func scanDocumentWithStorage(row scanner) (Document, error) {
 	var d Document
-	err := row.Scan(&d.ID, &d.WorkspaceID, &d.FolderID, &d.Title, &d.Family, &d.MIMEType, &d.EditorProvider, &d.StorageMode, &d.CurrentVersionID, &d.CreatedAt, &d.UpdatedAt, &d.organizationID, &d.storageKey, &d.size, &d.sha256)
+	err := row.Scan(&d.ID, &d.WorkspaceID, &d.FolderID, &d.Title, &d.Family, &d.MIMEType, &d.EditorProvider, &d.StorageMode, &d.CurrentVersionID, &d.CreatedAt, &d.UpdatedAt, &d.organizationID, &d.storageKey, &d.size, &d.sha256, &d.ExternalProvider, &d.ExternalFileID, &d.ExternalURL)
 	return d, err
 }
 

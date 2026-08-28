@@ -94,8 +94,25 @@ func validFilters(filters map[string]any) bool {
 		if _, ok := value.(string); !ok {
 			return false
 		}
+		if key == "dateFrom" || key == "dateTo" {
+			if _, err := time.Parse(time.RFC3339, value.(string)); err != nil {
+				return false
+			}
+		}
 	}
 	return true
+}
+func filter(run Run, key string) string { value, _ := run.Filters[key].(string); return value }
+func timeFilter(run Run, key string) *time.Time {
+	value := filter(run, key)
+	if value == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
 }
 func (s *Service) Create(ctx context.Context, actor, org, definitionID, format, idempotencyKey string, filters map[string]any) (Run, error) {
 	if err := s.requireAdmin(ctx, actor, org); err != nil {
@@ -218,7 +235,7 @@ func (s *Service) dataset(ctx context.Context, run Run) (Dataset, error) {
 	}
 }
 func (s *Service) documentUsage(ctx context.Context, run Run) (Dataset, error) {
-	rows, err := s.pool.Query(ctx, `SELECT d.family,d.editor_provider,d.storage_mode,count(DISTINCT d.id),count(v.id),COALESCE(sum(o.size),0) FROM documents d JOIN document_versions v ON v.document_id=d.id JOIN storage_objects o ON o.id=v.storage_object_id WHERE d.organization_id=$1 AND ($2::uuid IS NULL OR d.workspace_id=$2) GROUP BY d.family,d.editor_provider,d.storage_mode ORDER BY d.family,d.editor_provider`, run.OrganizationID, run.WorkspaceID)
+	rows, err := s.pool.Query(ctx, `SELECT d.family,d.editor_provider,d.storage_mode,count(DISTINCT d.id),count(v.id),COALESCE(sum(o.size),0) FROM documents d JOIN document_versions v ON v.document_id=d.id JOIN storage_objects o ON o.id=v.storage_object_id WHERE d.organization_id=$1 AND ($2::uuid IS NULL OR d.workspace_id=$2) AND ($3='' OR d.family=$3) AND ($4='' OR d.editor_provider=$4) AND ($5='' OR d.storage_mode=$5) GROUP BY d.family,d.editor_provider,d.storage_mode ORDER BY d.family,d.editor_provider`, run.OrganizationID, run.WorkspaceID, filter(run, "family"), filter(run, "editorProvider"), filter(run, "storageMode"))
 	if err != nil {
 		return Dataset{}, err
 	}
@@ -235,7 +252,7 @@ func (s *Service) documentUsage(ctx context.Context, run Run) (Dataset, error) {
 	return data, rows.Err()
 }
 func (s *Service) membership(ctx context.Context, run Run) (Dataset, error) {
-	rows, err := s.pool.Query(ctx, `SELECT u.display_name,COALESCE(u.email,''),m.role::text,m.status,(SELECT count(*) FROM authorization_grants g WHERE g.organization_id=m.organization_id AND g.user_id=m.user_id),(SELECT count(*) FROM group_members gm JOIN groups g ON g.id=gm.group_id WHERE g.organization_id=m.organization_id AND gm.user_id=m.user_id) FROM organization_memberships m JOIN users u ON u.id=m.user_id WHERE m.organization_id=$1 ORDER BY u.display_name LIMIT 10000`, run.OrganizationID)
+	rows, err := s.pool.Query(ctx, `SELECT u.display_name,COALESCE(u.email,''),m.role::text,m.status,(SELECT count(*) FROM authorization_grants g WHERE g.organization_id=m.organization_id AND g.user_id=m.user_id),(SELECT count(*) FROM group_members gm JOIN groups g ON g.id=gm.group_id WHERE g.organization_id=m.organization_id AND gm.user_id=m.user_id) FROM organization_memberships m JOIN users u ON u.id=m.user_id WHERE m.organization_id=$1 AND ($2='' OR m.user_id::text=$2) ORDER BY u.display_name LIMIT 10000`, run.OrganizationID, filter(run, "memberId"))
 	if err != nil {
 		return Dataset{}, err
 	}
@@ -252,8 +269,8 @@ func (s *Service) membership(ctx context.Context, run Run) (Dataset, error) {
 	return data, rows.Err()
 }
 func (s *Service) activity(ctx context.Context, run Run) (Dataset, error) {
-	event, _ := run.Filters["eventType"].(string)
-	rows, err := s.pool.Query(ctx, `SELECT event_type,count(*),min(created_at),max(created_at) FROM audit_events WHERE organization_id=$1 AND ($2='' OR event_type=$2) GROUP BY event_type ORDER BY count(*) DESC,event_type LIMIT 10000`, run.OrganizationID, event)
+	event := filter(run, "eventType")
+	rows, err := s.pool.Query(ctx, `SELECT event_type,count(*),min(created_at),max(created_at) FROM audit_events WHERE organization_id=$1 AND ($2='' OR event_type=$2) AND ($3::uuid IS NULL OR workspace_id=$3) AND ($4::timestamptz IS NULL OR created_at >= $4) AND ($5::timestamptz IS NULL OR created_at <= $5) GROUP BY event_type ORDER BY count(*) DESC,event_type LIMIT 10000`, run.OrganizationID, event, run.WorkspaceID, timeFilter(run, "dateFrom"), timeFilter(run, "dateTo"))
 	if err != nil {
 		return Dataset{}, err
 	}
@@ -271,7 +288,7 @@ func (s *Service) activity(ctx context.Context, run Run) (Dataset, error) {
 	return data, rows.Err()
 }
 func (s *Service) risk(ctx context.Context, run Run) (Dataset, error) {
-	rows, err := s.pool.Query(ctx, `SELECT editor_provider,storage_mode,count(*),COALESCE(sum(CASE WHEN external_url IS NOT NULL THEN 1 ELSE 0 END),0) FROM documents WHERE organization_id=$1 GROUP BY editor_provider,storage_mode ORDER BY count(*) DESC`, run.OrganizationID)
+	rows, err := s.pool.Query(ctx, `SELECT editor_provider,storage_mode,count(*),COALESCE(sum(CASE WHEN external_url IS NOT NULL THEN 1 ELSE 0 END),0) FROM documents WHERE organization_id=$1 AND ($2::uuid IS NULL OR workspace_id=$2) AND ($3='' OR editor_provider=$3) AND ($4='' OR storage_mode=$4) GROUP BY editor_provider,storage_mode ORDER BY count(*) DESC`, run.OrganizationID, run.WorkspaceID, filter(run, "editorProvider"), filter(run, "storageMode"))
 	if err != nil {
 		return Dataset{}, err
 	}

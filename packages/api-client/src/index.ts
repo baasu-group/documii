@@ -24,6 +24,10 @@ import type {
   OrganizationInvitation,
   ReportDefinition,
   ReportRun,
+  OrganizationMember,
+  IntegrationStatus,
+  IntegrationConnection,
+  PlatformDocumentMetadata,
 } from "@documi/shared-types";
 
 export interface ApiClientOptions {
@@ -108,6 +112,103 @@ export function createApiClient({
         method: "POST",
         headers: { "Idempotency-Key": crypto.randomUUID() },
       }),
+    organizationMembers: (organizationId: string) =>
+      request<{ members: OrganizationMember[] }>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/members`,
+      ),
+    organizationInvitations: (organizationId: string) =>
+      request<{ invitations: OrganizationInvitation[] }>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/invitations`,
+      ),
+    inviteOrganizationMember: (organizationId: string, email: string, role: AuthorizationRole) =>
+      request<OrganizationInvitation>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/invitations`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+          body: JSON.stringify({ email, role }),
+        },
+      ),
+    updateOrganizationMember: (
+      organizationId: string,
+      userId: string,
+      value: { role?: AuthorizationRole; status?: "active" | "suspended" },
+    ) =>
+      request<void>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(userId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(value),
+        },
+      ),
+    removeOrganizationMember: (organizationId: string, userId: string) =>
+      request<void>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(userId)}`,
+        { method: "DELETE" },
+      ),
+    resendOrganizationInvitation: (id: string) =>
+      request<OrganizationInvitation>(`/api/v1/invitations/${encodeURIComponent(id)}/resend`, {
+        method: "POST",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+      }),
+    revokeOrganizationInvitation: (id: string) =>
+      request<void>(`/api/v1/invitations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    organizationSettings: (organizationId: string) =>
+      request<OrganizationRecord>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/settings`,
+      ),
+    updateOrganizationSettings: (
+      organizationId: string,
+      shareDocumentTitlesWithPlatformAdmins: boolean,
+    ) =>
+      request<OrganizationRecord>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/settings`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shareDocumentTitlesWithPlatformAdmins }),
+        },
+      ),
+    integrations: () => request<{ integrations: IntegrationStatus[] }>("/api/v1/integrations"),
+    organizationConnections: (organizationId: string) =>
+      request<{ connections: IntegrationConnection[] }>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/connections`,
+      ),
+    setIntegrationEnabled: (id: string, enabled: boolean) =>
+      request<IntegrationStatus>(`/api/v1/platform/integrations/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      }),
+    deleteIntegrationConnection: (id: string) =>
+      request<void>(`/api/v1/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    platformDocuments: (organizationId: string) =>
+      request<{ documents: PlatformDocumentMetadata[] }>(
+        `/api/v1/platform/organizations/${encodeURIComponent(organizationId)}/documents`,
+      ),
+    startGoogleOrganizationConnection: (organizationId: string) =>
+      request<{ authorizationUrl: string; expiresAt: string }>(
+        `/api/v1/organizations/${encodeURIComponent(organizationId)}/connections/google/oauth/start`,
+        { method: "POST" },
+      ),
+    createGoogleDocument: (
+      workspaceId: string,
+      value: {
+        connectionId: string;
+        family: "text" | "spreadsheet" | "presentation";
+        title: string;
+        externalFileId?: string;
+      },
+    ) =>
+      request<DocumentRecord>(
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/external-documents`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+          body: JSON.stringify(value),
+        },
+      ),
     documentEditors: () => request<EditorProviderList>("/api/v1/document-editors"),
     workspaces: () => request<{ workspaces: Workspace[] }>("/api/v1/workspaces"),
     documentEditorStatus: (provider: EditorProviderId) =>
@@ -319,6 +420,26 @@ export function createServerOrganizationGateway(options: ApiClientOptions) {
     reportRuns: async (organizationId: string) => (await client.reportRuns(organizationId)).runs,
     createReportRun: client.createReportRun,
     exportReport: client.exportReport,
+    members: async (organizationId: string) =>
+      (await client.organizationMembers(organizationId)).members,
+    invitations: async (organizationId: string) =>
+      (await client.organizationInvitations(organizationId)).invitations,
+    invite: client.inviteOrganizationMember,
+    updateMember: client.updateOrganizationMember,
+    removeMember: client.removeOrganizationMember,
+    resendInvitation: client.resendOrganizationInvitation,
+    revokeInvitation: client.revokeOrganizationInvitation,
+    settings: client.organizationSettings,
+    updateSettings: client.updateOrganizationSettings,
+    integrations: async () => (await client.integrations()).integrations,
+    connections: async (organizationId: string) =>
+      (await client.organizationConnections(organizationId)).connections,
+    setIntegrationEnabled: client.setIntegrationEnabled,
+    deleteConnection: client.deleteIntegrationConnection,
+    platformDocuments: async (organizationId: string) =>
+      (await client.platformDocuments(organizationId)).documents,
+    startGoogleOrganizationConnection: client.startGoogleOrganizationConnection,
+    createGoogleDocument: client.createGoogleDocument,
   };
 }
 

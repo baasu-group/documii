@@ -36,3 +36,25 @@ func TestLoadAcceptsDisabledExternalEditorsWithoutSecrets(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 }
+
+func TestLoadRejectsGoogleInAirGap(t *testing.T) {
+	t.Setenv("AIR_GAPPED", "true")
+	t.Setenv("GOOGLE_WORKSPACE_ENABLED", "true")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")
+	t.Setenv("GOOGLE_OAUTH_REDIRECT_URL", "http://localhost/callback")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted Google Workspace in air-gapped mode")
+	}
+}
+func TestLoadRejectsGoogleWithoutEncryptedSecretKey(t *testing.T) {
+	t.Setenv("AIR_GAPPED", "false")
+	t.Setenv("GOOGLE_WORKSPACE_ENABLED", "true")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "client")
+	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "secret")
+	t.Setenv("GOOGLE_OAUTH_REDIRECT_URL", "http://localhost/callback")
+	t.Setenv("DOCUMI_SECRET_MASTER_KEY", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted Google without SecretStore master key")
+	}
+}
