@@ -8,7 +8,7 @@ import {
   setDefaultAccessTokenProvider,
 } from "@documi/api-client";
 import "@documi/ui/styles.css";
-import { configureWebAuthentication } from "./auth";
+import { configureWebAuthentication, logoutWebAuthentication } from "./auth";
 
 async function start() {
   const root = document.getElementById("root");
@@ -22,7 +22,7 @@ async function start() {
 
   createRoot(root).render(
     <StrictMode>
-      <AppShell platform={{ kind: "web", documents, administration, organizations }} />
+      <AppShell platform={{ kind: "web", documents, administration, organizations }} onLogout={logoutWebAuthentication} />
     </StrictMode>,
   );
 }

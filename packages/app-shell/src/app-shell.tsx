@@ -68,7 +68,12 @@ const featureCopy: Record<Exclude<NavigationId, "home">, { title: string; descri
   },
 };
 
-function Home({ onNewDocument }: { onNewDocument: () => void }) {
+function Home({ onNewDocument, displayName }: { onNewDocument: () => void; displayName?: string }) {
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const firstName = displayName?.trim().split(/\s+/)[0] || "there";
+  const today = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(now);
   const cards = [
     [
       "documents",
@@ -92,10 +97,10 @@ function Home({ onNewDocument }: { onNewDocument: () => void }) {
       <div className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.22em] text-forest">
-            Wednesday, 26 August
+            {today}
           </p>
           <h1 className="m-0 max-w-2xl text-4xl font-semibold tracking-[-0.04em] text-ink md:text-5xl">
-            Good evening, Basanta.
+            {greeting}, {firstName}.
           </h1>
           <p className="mt-3 text-base text-black/55">
             Everything your team needs to move work forward.
@@ -168,7 +173,7 @@ function FeaturePlaceholder({ active }: { active: Exclude<NavigationId, "home"> 
   );
 }
 
-export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform }) {
+export function AppShell({ platform, onLogout }: { platform: PlatformKind | EditorPlatform; onLogout?: () => void | Promise<void> }) {
   const editorPlatform: EditorPlatform =
     typeof platform === "string" ? { kind: platform } : platform;
   const [active, setActive] = useState<NavigationId>("home");
@@ -296,7 +301,7 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
         </div>
       </aside>
       <main className="min-w-0">
-        <header className="flex h-16 items-center justify-end border-b border-black/[0.06] bg-paper/90 px-5 backdrop-blur md:px-10">
+        <header className="flex h-16 items-center justify-end gap-4 border-b border-black/[0.06] bg-paper/90 px-5 backdrop-blur md:px-10">
           <label className="relative hidden sm:block">
             <span className="sr-only">Search</span>
             <Icon name="search" className="absolute left-3 top-2.5 h-4 w-4 text-black/35" />
@@ -305,6 +310,7 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
               placeholder="Search workspace"
             />
           </label>
+          {onLogout && <button type="button" onClick={() => void onLogout()} className="rounded-xl border border-black/[0.12] bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-moss focus-visible:outline focus-visible:outline-2 focus-visible:outline-forest">Log out</button>}
         </header>
         <div className="mx-auto max-w-6xl p-5 md:p-10">
           {sessionError ? (
@@ -332,7 +338,7 @@ export function AppShell({ platform }: { platform: PlatformKind | EditorPlatform
           ) : path === "/dashboard" && session ? (
             <MemberHome session={session} />
           ) : active === "home" ? (
-            <Home onNewDocument={() => setActive("documents")} />
+            <Home onNewDocument={() => setActive("documents")} displayName={session?.user.displayName} />
           ) : active === "documents" ? (
             <DocumentsFeature
               documentId={documentId}

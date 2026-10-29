@@ -7,6 +7,16 @@ interface PublicAuthConfig {
   audience: string;
 }
 
+let userManager: UserManager | undefined;
+
+export async function logoutWebAuthentication() {
+  if (userManager) {
+    await userManager.signoutRedirect();
+    return;
+  }
+  window.location.assign("/");
+}
+
 export async function configureWebAuthentication() {
   const response = await fetch("/api/v1/auth/config");
   if (!response.ok) throw new Error("auth_configuration_unavailable");
@@ -22,9 +32,10 @@ export async function configureWebAuthentication() {
     scope: "openid profile email",
     userStore: new WebStorageStateStore({ store: window.sessionStorage }),
   });
+  userManager = manager;
   if (window.location.pathname === "/auth/callback") {
     await manager.signinRedirectCallback();
-    window.history.replaceState({}, "", "/");
+    window.history.replaceState({}, "", "/app");
   }
   let user = await manager.getUser();
   if (!user || user.expired) {
